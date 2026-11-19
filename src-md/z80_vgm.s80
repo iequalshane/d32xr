@@ -47,6 +47,9 @@ RF5C68_CNT  EQU (LOCAL_MEM+0x19)
 
 HLBACKUP    EQU (LOCAL_MEM+$1A)     ; backup space for HL register
 
+FM_GAIN_REQ EQU $005C           ; written by 68000, in YM total-level units
+FM_GAIN     EQU $005D           ; setting applied to the cached registers
+
 VGMBUF      EQU $1000   ; last 4KB of sram holds VGM data (eight banks of 512 bytes)
 VGMTOP      EQU $2000   ;
 
@@ -191,6 +194,10 @@ dispatch
     JP      end_data
 
 
+check_gain_and_wait
+    LD      A,(FM_GAIN_REQ)
+    CP      (IX+FM_GAIN-LOCAL_MEM)
+    CALL    NZ,refresh_gain
 waiting
     LD      A,(IY+YMPORT0)
     OR      A
@@ -289,7 +296,7 @@ set_tmr
     LD      (IY+YMPORT0),$27
     OR      $01
     LD      (IY+YMPORT1),A      ; start timer A (keep current CSM)
-    JP      waiting
+    JP      check_gain_and_wait
 
 
 next_buffer
@@ -370,6 +377,10 @@ set_fm0
     LD      A,$27
 
 wr_fm0
+    PUSH    DE
+    LD      D,0
+    CALL    gain_register
+    POP     DE
     LD      (IY+YMPORT0),A
     LD      (IY+YMPORT1),B      ; write dd to YM2612 port 0 register aa
     JP      play_loop
@@ -392,9 +403,163 @@ get_fm1_dd
     BIT     0,H
     CALL    Z,next_buffer       ; done two pages (each buffer is two pages)
 set_fm1
+    PUSH    DE
+    LD      D,16
+    CALL    gain_register
+    POP     DE
     LD      (IY+YMPORT2),A
     LD      (IY+YMPORT3),B      ; write dd to YM2612 port 1 register aa
     JP      play_loop
+
+ ; A = register, B = value, D = bank offset (0 or 16).
+; Cache the score's unmodified TLs. Changing only the output operators
+; preserves the timbre of each FM instrument.
+gain_register
+    CP      $40
+    RET     C
+    CP      $50
+    JR      C,gain_tl
+    CP      $B0
+    RET     C
+    CP      $B8
+    RET     NC
+    PUSH    AF
+    PUSH    BC
+    PUSH    HL
+    LD      E,A
+    AND     3
+    OR      D
+    LD      C,A                 ; bank and channel
+    BIT     2,E
+    JR      NZ,gain_pan
+    LD      A,B
+    AND     7
+    LD      HL,carrier_thresholds
+    ADD     A,L
+    LD      L,A
+    LD      A,(HL)
+    LD      HL,channel_threshold
+    LD      L,C
+    CP      (HL)
+    JR      Z,gain_done
+    LD      (HL),A
+    CALL    refresh_channel
+gain_done
+    POP     HL
+    POP     BC
+    POP     AF
+    RET
+gain_pan
+    LD      HL,channel_pan
+    LD      L,C
+    LD      (HL),B
+    LD      A,(FM_GAIN)
+    CP      127
+    JR      NZ,gain_done
+    POP     HL
+    POP     BC
+    RES     7,B
+    RES     6,B
+    POP     AF
+    RET
+gain_tl
+    PUSH    AF
+    PUSH    BC
+    PUSH    HL
+    AND     15
+    OR      D
+    LD      C,A
+    LD      HL,operator_tl
+    LD      L,C
+    LD      (HL),B
+    CALL    scaled_tl
+    POP     HL
+    POP     BC
+    LD      B,A
+    POP     AF
+    RET
+
+; C = bank:operator:channel. The caches each start on a page boundary.
+scaled_tl
+    LD      A,C
+    AND     $13
+    LD      HL,channel_threshold
+    LD      L,A
+    LD      A,C
+    AND     12
+    CP      (HL)
+    LD      HL,operator_tl
+    LD      L,C
+    LD      A,(HL)
+    RET     C
+    ADD     A,(IX+FM_GAIN-LOCAL_MEM)
+    BIT     7,A
+    RET     Z
+    LD      A,127
+    RET
+
+; Apply a new setting even to sustained notes with no incoming TL writes.
+refresh_gain
+    LD      (FM_GAIN),A
+    PUSH    BC
+    PUSH    DE
+    PUSH    HL
+    LD      C,0
+gain_next_channel
+    CALL    refresh_channel
+    LD      HL,channel_pan
+    LD      L,C
+    LD      B,(HL)
+    LD      A,(FM_GAIN)
+    CP      127
+    JR      NZ,gain_write_pan
+    RES     7,B
+    RES     6,B
+gain_write_pan
+    LD      A,C
+    AND     3
+    OR      $B4
+    CALL    gain_write
+    INC     C
+    LD      A,C
+    CP      3
+    JR      NZ,gain_check_end
+    LD      C,16
+gain_check_end
+    CP      19
+    JR      NZ,gain_next_channel
+    POP     HL
+    POP     DE
+    POP     BC
+    RET
+refresh_channel
+    PUSH    BC
+    LD      E,4
+gain_next_operator
+    CALL    scaled_tl
+    LD      B,A
+    LD      A,C
+    AND     15
+    OR      $40
+    CALL    gain_write
+    INC     C
+    INC     C
+    INC     C
+    INC     C
+    DEC     E
+    JR      NZ,gain_next_operator
+    POP     BC
+    RET
+gain_write
+    BIT     4,C
+    JR      NZ,gain_bank1
+    LD      (IY+YMPORT0),A
+    LD      (IY+YMPORT1),B
+    RET
+gain_bank1
+    LD      (IY+YMPORT2),A
+    LD      (IY+YMPORT3),B
+    RET
 
 ; wait nnnn sample periods
 wait_nnnn
@@ -811,4 +976,17 @@ rf5c68_regwr_2:
 
     CALL    rf5c68_action
     JP      play_loop
+; Local RAM below the stack and VGM ring buffer. Slots in YM register
+; order are operators 1, 3, 2, 4. Algorithm 4 outputs operators 2 and 4.
+    defs    $0800 - $
+operator_tl
+    defs    32,127
+    defs    $0900 - $
+channel_threshold
+    defs    32,12
+carrier_thresholds
+    db      12,12,12,12,8,4,4,0
+    defs    $0A00 - $
+channel_pan
+    defs    32,0
 #end

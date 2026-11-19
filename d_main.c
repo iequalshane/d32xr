@@ -329,6 +329,8 @@ static void D_Wipe(void)
 	wipe_ExitMelt();
 }
 
+static boolean inAttract, attractMenuOpen;
+
 int MiniLoop ( void (*start)(void),  void (*stop)(void)
 		,  int (*ticker)(void), void (*drawer)(void)
 		,  void (*update)(void) )
@@ -421,13 +423,22 @@ int MiniLoop ( void (*start)(void),  void (*stop)(void)
 
 		if (demoplayback)
 		{
-	#ifndef MARS
-			if (buttons & (BT_ATTACK|BT_SPEED|BT_USE) )
+			if (inAttract && attractMenuOpen)
 			{
-				exit = ga_exitdemo;
-				break;
+				exit = M_Ticker();
+				if (exit)
+					break;
 			}
-	#endif
+			else if ((buttons & ~oldticrealbuttons) & (BT_START|BT_ATTACK|BT_SPEED|BT_USE))
+			{
+				if (!inAttract)
+				{
+					exit = ga_exitdemo;
+					break;
+				}
+				M_Start();
+				attractMenuOpen = true;
+			}
 			players[consoleplayer].ticbuttons = buttons = *demo_p++;
 		}
 
@@ -451,7 +462,7 @@ int MiniLoop ( void (*start)(void),  void (*stop)(void)
 		
 		if ((demorecording || demoplayback) && (buttons & BT_PAUSE) )
 		{
-			exit = ga_exitdemo; // Demo finished by choice, not by death
+			exit = demoplayback ? ga_completed : ga_exitdemo;
 			break;
 		}
 
@@ -484,6 +495,8 @@ int MiniLoop ( void (*start)(void),  void (*stop)(void)
 			;
 
 		drawer();
+		if (inAttract && attractMenuOpen)
+			M_Drawer();
 
 		if (!exit && wipe)
 		{
@@ -797,10 +810,11 @@ void DRAW_Title (void)
 }
 
 /*============================================================================ */
-void RunMenu (void);
+static void RunMenu(boolean selectGame);
 
-void RunTitle (void)
+static int RunTitle (void)
 {
+	int result;
 	startskill = sk_medium;
 	startmap = 1;
 	starttype = gt_single;
@@ -808,12 +822,13 @@ void RunTitle (void)
 	startsave = -1;
 	startsplitscreen = 0;
 	canwipe = false;
-	MiniLoop (START_Title, STOP_Title, TIC_Abortable, DRAW_Title, UpdateBuffer);
+	result = MiniLoop (START_Title, STOP_Title, TIC_Abortable, DRAW_Title, UpdateBuffer);
 #ifndef ENABLE_FIRE_ANIMATION
 	canwipe = true;
 #else
 	canwipe = gameinfo.titleStartPos == 0;
 #endif
+	return result;
 }
 
 #define MAX_ATTRACT_DEMOS 10
@@ -851,14 +866,16 @@ static unsigned *LoadDemoNum(const char *demoname)
 	return demo;
 }
 
-static void RunAttractDemos (void)
+static boolean RunAttractDemos(boolean openMenu)
 {
 	int i;
 	int exit = ga_exitdemo;
 	boolean first = true;
 
 	if (gameinfo.noAttractDemo)
-		return;
+		return false;
+	inAttract = true;
+	attractMenuOpen = false;
 
 	do {
 		for (i = 0; i < MAX_ATTRACT_DEMOS; i++)
@@ -871,18 +888,29 @@ static void RunAttractDemos (void)
 			demo = LoadDemoNum(demoname);
 
 			if (!demo && first)
-				return;
+				goto done;
 			if (!demo)
 				break;
 
+			if (first && openMenu)
+			{
+				M_Start();
+				attractMenuOpen = true;
+			}
 			first = false;
 			exit = G_PlayDemoPtr (demo);
 			Z_Free(demo);
 
-			if (exit == ga_exitdemo)
-				break;
+			if (exit == ga_startnew || exit == ga_exitdemo)
+				goto done;
 		}
-	} while (exit != ga_exitdemo);
+	} while (true);
+done:
+	if (attractMenuOpen)
+		M_Stop();
+	attractMenuOpen = false;
+	inAttract = false;
+	return exit == ga_startnew;
 }
 
 __attribute((noinline))
@@ -902,14 +930,11 @@ static void PrepMenu (void)
 #endif
 }
 
-void RunMenu (void)
+static void RunMenu(boolean selectGame)
 {
 #ifdef MARS
-	PrepMenu();
-
-	RunAttractDemos();
-
-	M_Stop();
+	if (selectGame)
+		MiniLoop (M_Start, M_Stop, M_Ticker, M_Drawer, UpdateBuffer);
 #else
 reselect:
 	MiniLoop(M_Start, M_Stop, M_Ticker, M_Drawer, NULL);
@@ -1047,9 +1072,8 @@ D_printf ("DM_Main\n");
 	G_RunGame ();
 #endif
 
-	RunTitle();
-
-	RunMenu();
+	boolean menuSelected = RunAttractDemos(RunTitle() == ga_exitdemo);
+	RunMenu(!menuSelected);
 
 	gameaction = 0;
 	goto gameselect;

@@ -1,720 +1,318 @@
-/* m_main.c -- main menu */
+/* Shared title and in-game menu. */
+#include "r_local.h"
 
-#include "doomdef.h"
+#define MOVEWAIT (I_IsPAL() ? TICVBLS*5 : TICVBLS*6)
+#define ITEMX 88
+#define ROW 20
 
-#define MOVEWAIT		(I_IsPAL() ? TICVBLS*5 : TICVBLS*6)
-#define CURSORX		(80)
-#define CURSORWIDTH	24
-#define ITEMX		(CURSORX+CURSORWIDTH)
-#define STARTY			40
-#define ITEMSPACE	20
-#define CURSORY(y)	(STARTY+ITEMSPACE*(y))
-#define	NUMLCHARS 64	
-
-typedef enum
-{
-	mi_newgame,
-	mi_loadgame,
-	mi_savegame,
-	mi_joingame,
-	mi_level,
-	mi_gamemode,
-	mi_difficulty,
-	mi_savelist,
-	mi_singleplayer,
-	mi_splitscreen,
-	mi_network,
-	NUMMAINITEMS
-} menu_t;
-
-typedef enum
-{
-	single,
-	coop,
-	dmatch,
-	NUMMODES
-} playmode_t;
-
-typedef struct
-{
-	VINT	x;
-	uint8_t	y;
-	char	screen;
-	char 	*name;
-} mainitem_t;
-
-typedef struct
-{
-	VINT firstitem;
-	VINT numitems;
-} mainscreen_t;
-
-typedef enum
-{
-	ms_none = -1,
-	ms_main,
-	ms_gametype,
-	ms_new,
-	ms_load,
-	ms_save,
-	NUMMAINSCREENS
+typedef enum {
+	ms_main, ms_mode, ms_skill, ms_level, ms_load, ms_save, ms_settings
 } screen_t;
 
-static mainitem_t mainitem[NUMMAINITEMS];
-static mainscreen_t mainscreen[NUMMAINSCREENS];
-
-static const char* const playmodes[NUMMODES] = { "Single", "Coop", "Deathmatch" };
-jagobj_t* m_doom;
-
-static VINT m_skull1lump, m_skull2lump;
-static VINT m_skilllump;
-static VINT numslump;
-
-static VINT	cursorframe;
-static VINT cursordelay;
-static VINT	movecount;
-static VINT	playermap = 1;
-
-static VINT currentplaymode = gt_single;
-static VINT currentgametype = mi_singleplayer;
-static VINT	cursorpos;
-static VINT screenpos;
-static VINT playerskill;
-
-static VINT saveslot;
-static VINT savecount;
-static VINT prevsaveslot;
-static VINT saveslotmap;
-static VINT saveslotskill;
-static VINT saveslotmode;
-static char savewadname[32];
-static char savemapname[32];
-static char savewadmismatch;
-
+enum { new_game, options, load_game, save_game, controls, join_quit };
+static const char *const rootArt[] = {
+	"M_NGAME", "M_OPTION", "M_LOADG", "M_SAVEG", NULL, "M_JOIN"
+};
+static const char *const modes[] = {"Single player", "Split-screen", "Multiplayer"};
+static const char *const playModes[] = {"Single player", "Co-op", "Deathmatch"};
+static screen_t screen;
 static boolean startup;
+static int cursor, mode, rules, skill, level, slot, savecount;
+static int rootLabels[6], skull[2], logo, skillArt, skillTitle, font, smallFont;
+static int repeatDelay, cursorFrame;
+static VINT slotMap, slotSkill, slotMode;
+static char wadName[32], mapName[32];
+static boolean occupied, mismatch;
 
-extern VINT	uchar;
-extern void print(int x, int y, const char* string);
-
-void M_Start2 (boolean startup_)
+static void drawText(int x, int y, const char *text, int firstGlyph)
 {
-	int i;
-
-/* cache all needed graphics	 */
-	startup = startup_;
-	if (startup)
-	{
-		W_LoadPWAD(PWAD_CD);
-
-		i = W_CheckNumForName("M_DOOM");
-		m_doom = i != -1 ? W_CacheLumpNum(i, PU_STATIC) : NULL;
-
-		W_LoadPWAD(PWAD_NONE);
-	}
-	else
-	{
-		m_doom = NULL;
-	}
-
-	m_skull1lump = W_CheckNumForName("M_SKULL1");
-	m_skull2lump = W_CheckNumForName("M_SKULL2");
-
-	m_skilllump = W_CheckNumForName("SKILL0");
-
-	numslump = W_CheckNumForName("NUM_0");
-
-	uchar = W_CheckNumForName("CHAR_065");
-
-	cursorframe = -1;
-	cursorpos = 0;
-	cursordelay = MOVEWAIT;
-
-	/* HACK: dunno why but the pistol sound comes out muffled if played from M_Start */
-	/* so defer the playback until M_Ticker is called */
-	screenpos = startup ? ms_main : ms_none;
-	playerskill = startskill;
-	if (startup)
-		playermap = 1;
-
-	saveslot = 0;
-	savecount = SaveCount();
-	prevsaveslot = -1;
-	savewadmismatch = 0;
-
-	D_memset(mainscreen, 0, sizeof(mainscreen));
-	D_memset(mainitem, 0, sizeof(mainitem));
-
-	mainscreen[ms_new].firstitem = mi_level;
-	mainscreen[ms_new].numitems = mi_difficulty - mainscreen[ms_new].firstitem + 1;
-
-	mainscreen[ms_load].firstitem = mi_savelist;
-	mainscreen[ms_load].numitems = 1;
-
-	mainscreen[ms_main].firstitem = mi_newgame;
-	mainscreen[ms_main].numitems = 1;
-
-	mainscreen[ms_save].firstitem = mi_savelist;
-	mainscreen[ms_save].numitems = 1;
-
-	mainscreen[ms_gametype].firstitem = mi_singleplayer;
-	mainscreen[ms_gametype].numitems = 3;
-
-	mainitem[mi_newgame].name = "New Game";
-	mainitem[mi_newgame].x = ITEMX;
-	mainitem[mi_newgame].y = CURSORY(0);
-	mainitem[mi_newgame].screen = ms_gametype;
-
-	mainitem[mi_loadgame].name = "Load Game";
-	mainitem[mi_loadgame].x = ITEMX;
-	mainitem[mi_loadgame].y = CURSORY(1);
-	mainitem[mi_loadgame].screen = ms_load;
-	mainscreen[ms_main].numitems++;
-
-	mainitem[mi_savegame].name = "Save Game";
-	mainitem[mi_savegame].x = ITEMX;
-	mainitem[mi_savegame].y = CURSORY(2);
-	mainitem[mi_savegame].screen = ms_save;
-	mainscreen[ms_main].numitems++;
-
-	mainitem[mi_joingame].name = "Join Game";
-	mainitem[mi_joingame].x = ITEMX;
-	mainitem[mi_joingame].y = CURSORY(3);
-	mainitem[mi_joingame].screen = ms_none;
-	mainscreen[ms_main].numitems++;
-
-	mainitem[mi_level].name = "Level";
-	mainitem[mi_level].x = ITEMX;
-	mainitem[mi_level].y = CURSORY(0);
-	mainitem[mi_level].screen = ms_none;
-
-	mainitem[mi_gamemode].name = "Game Mode";
-	mainitem[mi_gamemode].x = ITEMX;
-	mainitem[mi_gamemode].y = CURSORY((mainscreen[ms_new].numitems - 2) * 2);
-	mainitem[mi_gamemode].screen = ms_none;
-
-	mainitem[mi_difficulty].name = "Difficulty";
-	mainitem[mi_difficulty].x = ITEMX;
-	mainitem[mi_difficulty].y = CURSORY((mainscreen[ms_new].numitems - 1)*2);
-	mainitem[mi_difficulty].screen = ms_none;
-
-	mainitem[mi_savelist].name = "Checkpoints";
-	mainitem[mi_savelist].x = ITEMX;
-	mainitem[mi_savelist].y = CURSORY(0);
-	mainitem[mi_savelist].screen = ms_none;
-
-	mainitem[mi_singleplayer].name = "Single Player";
-	mainitem[mi_singleplayer].x = ITEMX;
-	mainitem[mi_singleplayer].y = CURSORY(0);
-	mainitem[mi_singleplayer].screen = ms_new;
-
-	mainitem[mi_splitscreen].name = "Split-Screen";
-	mainitem[mi_splitscreen].x = ITEMX;
-	mainitem[mi_splitscreen].y = CURSORY(1);
-	mainitem[mi_splitscreen].screen = ms_new;
-
-	mainitem[mi_network].name = "Multiplayer";
-	mainitem[mi_network].x = ITEMX;
-	mainitem[mi_network].y = CURSORY(2);
-	mainitem[mi_network].screen = ms_new;
-
-#ifndef MARS
-	DoubleBufferSetup();
-#endif
-}
-
-void M_Start(void)
-{
-	M_Start2(true);
-}
-
-void M_Stop (void)
-{	
-#ifndef MARS
-	int i;
-#endif
-
-/* they stay cached by status bar */
-
-/* free all loaded graphics */
-
-	if (m_doom != NULL)
-	{
-		Z_Free (m_doom);
-		m_doom = NULL;
-	}
-
-#ifndef MARS
-	WriteEEProm ();
-#endif
-}
-
-/*
-=================
-=
-= M_MapName
-=
-=================
-*/
-
-static const char* M_MapName(VINT mapnum)
-{
-	return G_MapNameForMapNum(mapnum);
-}
-
-static void M_UpdateSaveInfo(void)
-{
-	if (prevsaveslot != saveslot) {
-		prevsaveslot = saveslot;
-		saveslotmap = -1;
-		saveslotskill = -1;
-		saveslotmode = gt_single;
-		GetSaveInfo(saveslot, &saveslotmap, &saveslotskill, &saveslotmode, savewadname, savemapname);
-		savewadmismatch = D_strcasecmp(savewadname, cd_pwad_name);
+	while (*text) {
+		int c = *text++, width;
+		if (c == ' ') {
+			x += firstGlyph == smallFont ? 8 : 5;
+			continue;
+		}
+		if (c >= 'a' && c <= 'z')
+			c -= 'a' - 'A';
+		if (c < '!' || c > ']')
+			c = '?';
+		DrawJagobjLump(firstGlyph + c - '!', x, y, &width, NULL);
+		x += firstGlyph == smallFont ? 8 : width + 1;
 	}
 }
 
-/*
-=================
-=
-= M_Ticker
-=
-=================
-*/
-
-int M_Ticker (void)
+void M_MenuText(int x, int y, const char *text)
 {
-	int		buttons, oldbuttons;
-	mainscreen_t* menuscr;
-	int		oldplayermap;
-	boolean newcursor = false;
-	int sound = sfx_None;
+	drawText(x, y, text, font);
+}
 
-	if (cursorframe == -1)
-	{
-		cursorframe = 0;
-		cursordelay = MOVEWAIT+MOVEWAIT/2;
-	}
+void M_MenuSmall(int x, int row, const char *text)
+{
+	drawText(x, row * 8, text, smallFont);
+}
 
-	if (screenpos == ms_none)
-	{
-		screenpos = ms_main;
-		S_StartSound(NULL, sfx_pistol);
-	}
-
-	menuscr = &mainscreen[screenpos];
-
-/* animate skull */
-	if (gametic != prevgametic && (gametic&3) == 0)
-	{
-		cursorframe ^= 1;
-	}
-
-	M_UpdateSaveInfo();
-
-	buttons = ticrealbuttons & MENU_BTNMASK;
-	oldbuttons = oldticrealbuttons & MENU_BTNMASK;
-
-	if ((buttons & (BT_A | BT_LMBTN)) && !(oldbuttons & (BT_A | BT_LMBTN)))
-	{
-		int itemno = menuscr->firstitem + cursorpos;
-
-		int nextscreen = mainitem[itemno].screen;
-		if (nextscreen == ms_save && (startup || netgame == gt_deathmatch))
-			nextscreen = ms_none;
-
-		if (nextscreen != ms_none)
-		{
-			movecount = 0;
-			cursorpos = 0;
-			switch (itemno) {
-				case mi_splitscreen:
-				case mi_network:
-					if (currentplaymode == single)
-						currentplaymode++;
-					currentgametype = itemno;
-					break;
-				case mi_singleplayer:
-				default:
-					currentplaymode = single;
-					currentgametype = itemno;
-					break;
-			}
-			screenpos = nextscreen;
-			clearscreen = 2;
-			prevsaveslot = -1;
-			saveslot = screenpos == ms_save;
-			S_StartSound(NULL, sfx_pistol);
-			return ga_nothing;
+/* The DOS quit prompt uses the compact HUD letters with proportional spacing. */
+void M_MenuPrompt(int centerX, int y, const char *text)
+{
+	int width = 0;
+	for (const char *p = text; *p; ++p) {
+		if (*p == ' ') {
+			width += 4;
+		} else {
+			const jagobj_t *glyph = W_POINTLUMPNUM(smallFont + *p - '!');
+			width += BIGSHORT(glyph->width) + 1;
 		}
 	}
+	int x = centerX - width / 2;
+	while (*text) {
+		int c = *text++;
+		if (c == ' ') {
+			x += 4;
+		} else {
+			int w;
+			DrawJagobjLump(smallFont + c - '!', x, y, &w, NULL);
+			x += w + 1;
+		}
+	}
+}
 
-	if ((buttons & (BT_B | BT_RMBTN)) && !(oldbuttons & (BT_B | BT_RMBTN)))
-	{
-		if (screenpos != ms_main)
-		{
-			int i, j;
-			int curscreenpos = screenpos;
+static void openScreen(screen_t next, int selection)
+{
+	screen = next;
+	cursor = selection;
+	repeatDelay = MOVEWAIT;
+	clearscreen = 2;
+}
 
-			cursorpos = 0;
-			screenpos = ms_main;
+static void readSlot(void)
+{
+	occupied = GetSaveInfo(slot, &slotMap, &slotSkill, &slotMode, wadName, mapName);
+	mismatch = occupied && D_strcasecmp(wadName, cd_pwad_name);
+}
 
-			for (i =0; i < NUMMAINITEMS; i++)
-			{
-				if (mainitem[i].screen == curscreenpos) {
-					for (j = 0; j < NUMMAINSCREENS; j++) {
-						if (i >= mainscreen[j].firstitem && i < mainscreen[j].firstitem+mainscreen[j].numitems) {
-							screenpos = j;
-							cursorpos = i - mainscreen[j].firstitem;
-							break;
-						}
-					}
-					break;				
+void M_Start2(boolean atTitle)
+{
+	startup = atTitle;
+	openScreen(ms_main, new_game);
+	for (int i = 0; i < 6; ++i) {
+		if (i == controls)
+			continue;
+		rootLabels[i] = W_GetNumForName(i == join_quit && !startup ? "M_QUITG" : rootArt[i]);
+	}
+	skull[0] = W_GetNumForName("M_SKULL1");
+	skull[1] = W_GetNumForName("M_SKULL2");
+	logo = W_GetNumForName("M_DOOM");
+	skillArt = W_GetNumForName("SKILL0");
+	skillTitle = W_GetNumForName("M_SKILL");
+	font = W_GetNumForName("SLIME033");
+	smallFont = W_GetNumForName("MINI033");
+	mode = level = 0;
+	skill = startskill;
+	rules = gt_coop;
+}
+
+void M_Start(void) { M_Start2(true); }
+void M_Stop(void) {}
+
+static int rowCount(void)
+{
+	switch (screen) {
+	case ms_main: return 6;
+	case ms_mode: return 3;
+	case ms_skill: return sk_nightmare + 1;
+	case ms_level: return gamemapcount;
+	default: return 1;
+	}
+}
+
+int M_Ticker(void)
+{
+	int buttons = ticrealbuttons & MENU_BTNMASK;
+	int pressed = buttons & ~oldticrealbuttons;
+	int frame = (I_GetTime() / (I_IsPAL() ? 10 : 12)) & 1;
+	if (frame != cursorFrame)
+		clearscreen = 2;
+	cursorFrame = frame;
+
+	if (screen == ms_settings) {
+		if (!O_SettingsTicker(startup ? NULL : &players[consoleplayer])) {
+			WriteEEProm();
+			openScreen(ms_main, cursor);
+		}
+		return ga_nothing;
+	}
+
+	if (pressed & (BT_B | BT_RMBTN)) {
+		switch (screen) {
+		case ms_main: return startup ? ga_nothing : ga_completed;
+		case ms_mode: openScreen(ms_main, new_game); break;
+		case ms_skill: openScreen(ms_mode, mode); break;
+		case ms_level: openScreen(ms_skill, skill); break;
+		case ms_save: openScreen(ms_main, save_game); break;
+		case ms_load: openScreen(ms_main, load_game); break;
+		default: break;
+		}
+		S_StartSound(NULL, sfx_swtchx);
+		return ga_nothing;
+	}
+
+	if (pressed & (BT_A | BT_LMBTN | BT_START)) {
+		switch (screen) {
+		case ms_main:
+			switch (cursor) {
+			case new_game: openScreen(ms_mode, mode); break;
+			case load_game:
+			case save_game:
+				if (cursor == save_game && (startup || netgame == gt_deathmatch))
+					return ga_nothing;
+				slot = cursor == save_game;
+				savecount = SaveCount();
+				openScreen(slot ? ms_save : ms_load, 0);
+				readSlot();
+				break;
+			case join_quit:
+				if (startup) {
+					consoleplayer = 1;
+					I_NetSetup();
+					clearscreen = 2;
+					return starttype != gt_single ? ga_startnew : ga_nothing;
 				}
+				/* fall through */
+			default:
+				O_OpenSettings(cursor == controls ? om_controls :
+					cursor == join_quit ? om_quit : om_options);
+				openScreen(ms_settings, cursor);
+				break;
 			}
-
-			movecount = 0;
-			clearscreen = 2;
-			S_StartSound(NULL, sfx_swtchx);
-			return 0;
-		}
-		else
-		{
-			if (!startup)
-			{
-				return ga_completed;
-			}
-		}
-	}
-
-	/* exit menu if button press */
-	if ((buttons & (BT_A | BT_LMBTN | BT_START)) && !(oldbuttons & (BT_A | BT_LMBTN | BT_START)))
-	{
-		if (screenpos == ms_new)
-		{
+			break;
+		case ms_mode: mode = cursor; openScreen(ms_skill, skill); break;
+		case ms_skill: skill = cursor; openScreen(ms_level, level); break;
+		case ms_level:
+			level = cursor;
 			consoleplayer = 0;
 			startsave = -1;
-			startmap = gamemaplist[playermap - 1]->mapNumber; /*set map number */
-			startskill = playerskill;	/* set skill level */
-			starttype = currentplaymode;	/* set play type */
-			startsplitscreen = currentgametype == mi_splitscreen;
+			startmap = gamemaplist[level]->mapNumber;
+			startskill = skill;
+			starttype = mode ? rules : gt_single;
+			startsplitscreen = mode == 1;
 			if ((ticrealbuttons & (BT_Y|BT_MODE)) == (BT_Y|BT_MODE))
-			{
-				// hold Y and MODE to begin recording a demo
 				demorecording = true;
-			}
-			return ga_startnew;		/* done with menu */
-		}
-
-		if (screenpos == ms_main)
-		{
-			int itemno = menuscr->firstitem + cursorpos;
-			if (itemno == mi_joingame)
-			{
-				consoleplayer = 1;
-				I_NetSetup();
-				if (starttype != gt_single)
-					return ga_startnew;
-				clearscreen = 2;
-				return ga_nothing;
-			}
-		}
-
-		if (screenpos == ms_load)
-		{
-			if (savecount > 0 && !savewadmismatch)
-			{
-				startsplitscreen = saveslotmode != gt_single;
-				startsave = saveslot;
+			return ga_startnew;
+		case ms_load:
+			if (occupied && !mismatch) {
+				startsplitscreen = slotMode != gt_single;
+				startsave = slot;
 				return ga_startnew;
 			}
+			return ga_nothing;
+		case ms_save:
+			SaveGame(slot);
+			savecount = SaveCount();
+			readSlot();
+			break;
+		default: break;
 		}
-
-		if (screenpos == ms_save)
-		{
-			S_StartSound(NULL, sfx_pistol);
-			SaveGame(saveslot);
-			prevsaveslot = -1;
-			return ga_died;
-		}
-	}
-
-	if (buttons == 0)
-	{
-		cursordelay = 0;
+		S_StartSound(NULL, sfx_pistol);
 		return ga_nothing;
 	}
 
-	cursordelay -= vblsinframe;
-	if (cursordelay > 0)
+	if (!(buttons & (BT_UP|BT_DOWN|BT_LEFT|BT_RIGHT))) {
+		repeatDelay = 0;
 		return ga_nothing;
-
-	cursordelay = MOVEWAIT;
-
-/* check for movement */
-	oldplayermap = playermap;
-	if (! (buttons & (BT_UP|BT_DOWN|BT_LEFT|BT_RIGHT) ) )
-		movecount = 0;		/* move immediately on next press */
-	else
-	{
-		int itemno = menuscr->firstitem + cursorpos;
-
-		movecount = 0;		/* repeat move */
-
-		if (++movecount == 1)
-		{
-			int oldplayerskill = playerskill;
-			int oldsaveslot = saveslot;
-			int oldcursorpos = cursorpos;
-			int oldplayermode = currentplaymode;
-
-			if (buttons & BT_DOWN)
-			{
-				if (++cursorpos == menuscr->numitems)
-					cursorpos = 0;
-			}
-		
-			if (buttons & BT_UP)
-			{
-				if (--cursorpos == -1)
-					cursorpos = menuscr->numitems-1;
-			}
-
-			switch (itemno)
-			{
-				case mi_gamemode:
-					if (currentgametype == mi_singleplayer)
-					{
-						currentplaymode = single;
-					}
-					else
-					{
-						if (buttons & BT_RIGHT)
-						{
-							if (++currentplaymode == NUMMODES)
-								currentplaymode--;
-						}
-						if (buttons & BT_LEFT)
-						{
-							if (--currentplaymode <= single)
-								currentplaymode++;
-						}
-					}
-					break;
-				case mi_level:
-					if (buttons & BT_RIGHT)
-					{			
-						if (++playermap == gamemapcount + 1)
-							playermap = 1;
-					}
-					if (buttons & BT_LEFT)
-					{
-						if(--playermap == 0)
-							playermap = gamemapcount;
-					}
-					break;
-				case mi_difficulty:
-					if (buttons & BT_RIGHT)
-					{
-						if (++playerskill > sk_nightmare)
-							playerskill--;
-					}
-					if (buttons & BT_LEFT)
-					{
-						if (--playerskill == -1)
-							playerskill++;
-					}
-					break;
-				case mi_savelist:
-					if (buttons & BT_RIGHT)
-					{
-						saveslot++;
-						if (saveslot >= savecount + (screenpos == ms_save) || saveslot >= MaxSaveCount())
-							saveslot--;
-					}
-					if (buttons & BT_LEFT)
-					{
-						saveslot--;
-						if (saveslot == -1 + (screenpos == ms_save))
-							saveslot++;
-					}
-					break;
-				default:
-					break;
-			}
-
-			newcursor = cursorpos != oldcursorpos;
-
-			if (newcursor)
-				sound = sfx_pistol;
-			else if (oldplayerskill != playerskill ||
-				oldsaveslot != saveslot ||
-				oldplayermap != playermap ||
-				oldplayermode != currentplaymode)
-				sound = sfx_stnmov;
-		}
 	}
-
-	if (sound != sfx_None)
-		S_StartSound(NULL, sound);
-
-	if (newcursor || sound != sfx_None)
-	{
-		/* long menu item names can spill onto the screen border */
-		clearscreen = 2;
-		oldplayermap = playermap;
-	}
-
+	if ((repeatDelay -= vblsinframe) > 0)
+		return ga_nothing;
+	repeatDelay = MOVEWAIT;
+	if (buttons & (BT_DOWN|BT_UP)) {
+		int count = rowCount();
+		cursor = (cursor + count + (buttons & BT_DOWN ? 1 : -1)) % count;
+	} else if (screen == ms_mode && cursor) {
+		rules = rules == gt_coop ? gt_deathmatch : gt_coop;
+	} else if (screen == ms_save || screen == ms_load) {
+		int next = slot + (buttons & BT_RIGHT ? 1 : -1);
+		if (next < (screen == ms_save) || next >= MaxSaveCount() ||
+			next >= savecount + (screen == ms_save))
+			return ga_nothing;
+		slot = next;
+		readSlot();
+	} else return ga_nothing;
+	S_StartSound(NULL, sfx_stnmov);
+	clearscreen = 2;
 	return ga_nothing;
 }
 
-/*
-=================
-=
-= M_Drawer
-=
-=================
-*/
-
-void M_Drawer (void)
+static void drawSlot(void)
 {
-	int i;
-	int mapnumber = gamemaplist[playermap - 1]->mapNumber;
-	int	leveltens = mapnumber / 10, levelones = mapnumber % 10;
-	int scrpos = screenpos == ms_none ? ms_main : screenpos;
-	mainscreen_t* menuscr = &mainscreen[scrpos];
-	mainitem_t* items = &mainitem[menuscr->firstitem];
-	int y, y_offset = 0;
-
-/* Draw main menu */
-	if (m_doom && (scrpos == ms_main || scrpos == ms_gametype))
-	{
-		DrawJagobj(m_doom, 100, 4);
-		y_offset = m_doom->height + 4 - STARTY;
+	char text[32];
+	M_MenuText(ITEMX, 30, screen == ms_save ? "Save game" : "Load game");
+	if (!savecount && screen == ms_load) {
+		M_MenuText(48, 72, "Reach your first checkpoint");
+		M_MenuText(48, 92, "after the first area.");
+		return;
 	}
-
-/* erase old skulls */
-#ifndef MARS
-	EraseBlock (CURSORX, m_doom_height,m_skull1->width, CURSORY(menuscr->numitems)- CURSORY(0));
-#endif
-
-/* draw new skull */
-	if (cursorframe)
-		DrawJagobjLump(m_skull2lump, CURSORX, y_offset+items[cursorpos].y - 2, NULL, NULL);
-	else
-		DrawJagobjLump(m_skull1lump, CURSORX, y_offset+items[cursorpos].y - 2, NULL, NULL);
-
-/* draw menu items */
-	for (i = 0; i < menuscr->numitems; i++)
-	{
-		int y = y_offset + items[i].y;
-		print(items[i].x, y, items[i].name);
+	if (slot) {
+		D_snprintf(text, sizeof(text), "Slot %d", slot);
+		M_MenuText(ITEMX, 60, text);
+	} else M_MenuText(ITEMX, 60, "Last autosave");
+	if (!occupied) {
+		M_MenuText(ITEMX, 90, "Empty");
+		return;
 	}
-
-	if (scrpos == ms_new)
-	{
-		mainitem_t* item;
-		const char *tmp;
-		int tmplen;
-
-		/* draw game mode information */
-		item = &mainitem[mi_gamemode];
-		y = y_offset + item->y;
-		print(item->x + 10, y + ITEMSPACE + 2, playmodes[currentplaymode]);
-
-		/* draw start level information */
-		item = &mainitem[mi_level];
-		y = y_offset + item->y;
-
-		tmp = M_MapName(mapnumber);
-		tmplen = mystrlen(tmp);
-
-#ifndef MARS
-		EraseBlock(80, m_doom_height + CURSORY(NUMMAINITEMS - 2) + ITEMSPACE + 2, 320, nums[0]->height);
-#endif
-		if (leveltens)
-		{
-			DrawJagobjLump(numslump + leveltens, item->x + 76, y, NULL, NULL);
-			DrawJagobjLump(numslump + levelones, item->x + 90, y, NULL, NULL);
-		}
-		else
-			DrawJagobjLump(numslump + levelones, item->x + 76, y, NULL, NULL);
-
-		print((320 - (tmplen * 14)) >> 1, y + ITEMSPACE + 2, tmp);
-
-		item = &mainitem[mi_difficulty];
-		y = y_offset + item->y;
-
-#ifndef MARS
-		EraseBlock(82, m_doom_height + CURSORY(NUMMAINITEMS - 1) + ITEMSPACE + 2, 320 - 72, m_skill[playerskill]->height + 10);
-#endif
-		/* draw difficulty information */
-		DrawJagobjLump(m_skilllump + playerskill, item->x + 10, y + ITEMSPACE + 2, NULL, NULL);
+	D_snprintf(text, sizeof(text), "Level %d", slotMap);
+	M_MenuText(ITEMX, 90, text);
+	M_MenuText(ITEMX, 110, mapName);
+	if (mismatch && screen == ms_load) {
+		M_MenuText(ITEMX, 130, "WAD mismatch");
+		M_MenuText(ITEMX, 150, wadName);
+	} else {
+		M_MenuText(ITEMX, 130, playModes[slotMode]);
+		DrawJagobjLump(skillArt + slotSkill, ITEMX, 150, NULL, NULL);
 	}
-	else if (scrpos == ms_load || scrpos == ms_save)
-	{
-		mainitem_t* item;
-		
-		item = &mainitem[mi_savelist];
-		y = y_offset + item->y;
+}
 
-		M_UpdateSaveInfo();
-
-		if (savecount > 0)
-		{
-			if (saveslot == 0)
-				print(item->x + 10, y + 20 + 2, "Last autosave.");
+void M_Drawer(void)
+{
+	int x = screen == ms_main ? 120 : ITEMX;
+	int y = 55;
+	int spacing = screen == ms_main ? 17 : ROW;
+	if (startup && !demoplayback)
+		I_ClearFrameBuffer();
+	if (screen == ms_settings) {
+		O_DrawSettings(skull[cursorFrame]);
+		return;
+	}
+	if (screen == ms_main) {
+		jagobj_t *art = W_POINTLUMPNUM(logo);
+		DrawJagobj(art, (320 - BIGSHORT(art->width))/2, 16);
+		y = BIGSHORT(art->height) + 19;
+	} else if (screen == ms_mode)
+		M_MenuText(ITEMX, 23, "Pick mode");
+	else if (screen == ms_skill)
+		DrawJagobjLump(skillTitle, ITEMX, 23, NULL, NULL);
+	else if (screen == ms_level)
+		M_MenuText(ITEMX, 23, "Starting level");
+	else {
+		drawSlot();
+		y = 60;
+	}
+	DrawJagobjLump(skull[cursorFrame], x - 30, y + cursor*spacing - 4, NULL, NULL);
+	for (int i = 0; i < rowCount(); ++i) {
+		switch (screen) {
+		case ms_main:
+			if (i == controls)
+				M_MenuText(x, y, "Controls");
 			else
-			{
-				print(item->x + 10, y + 20, "Slot ");
-				DrawJagobjLump(numslump + saveslot % 10, item->x + 70, y + ITEMSPACE + 1, NULL, NULL);
-			}
-
-			if (saveslotmap != -1)
-			{
-				char *mapname;
-				int mapnamelen;
-
-				mapname = savemapname;
-				mapnamelen = mystrlen(mapname);
-
-				leveltens = saveslotmap / 10, levelones = saveslotmap % 10;
-
-				print(item->x + 10, y + ITEMSPACE*2 + 2, "Level");
-
-				if (leveltens)
-				{
-					DrawJagobjLump(numslump + leveltens, item->x + 86, y + ITEMSPACE*2 + 3, NULL, NULL);
-					DrawJagobjLump(numslump + levelones, item->x + 100, y + ITEMSPACE*2 + 3, NULL, NULL);
-				}
-				else
-					DrawJagobjLump(numslump + levelones, item->x + 86, y + ITEMSPACE*2 + 3, NULL, NULL);
-
-				print((320 - (mapnamelen * 14)) >> 1, y + ITEMSPACE*3 + 3, mapname);
-
-				if (scrpos == ms_load && savewadmismatch)
-				{
-					print(item->x + 10, y + ITEMSPACE*4 + 2, "WAD Mismatch");
-					print(item->x + 10, y + ITEMSPACE*5 + 2, savewadname);
-					return;
-				}
-			}
-			else
-			{
-				print(item->x + 10, y + ITEMSPACE*2 + 2, "Empty");
-			}
-
-			if (saveslotskill != -1)
-			{
-				/* draw difficulty information */
-				print(item->x + 10, y + ITEMSPACE*4 + 2, playmodes[saveslotmode]);
-				DrawJagobjLump(m_skilllump + saveslotskill, item->x + 10, y + ITEMSPACE*5 + 2, NULL, NULL);
-			}
+				DrawJagobjLump(rootLabels[i], x, y, NULL, NULL);
+			break;
+		case ms_mode: M_MenuText(ITEMX, y, modes[i]); break;
+		case ms_skill: DrawJagobjLump(skillArt+i, ITEMX, y, NULL, NULL); break;
+		case ms_level: M_MenuText(ITEMX, y, G_MapNameForMapNum(gamemaplist[i]->mapNumber)); break;
+		default: break;
 		}
-		else
-		{
-			print(CURSORX, y + ITEMSPACE+10 + 2, "Reach your first");
-			print(CURSORX, y + ITEMSPACE*2+10 + 2, "checkpoint after");
-			print(CURSORX, y + ITEMSPACE*3+10 + 2, "the first area.");
-		}
+		y += spacing;
+	}
+	if (screen == ms_mode && cursor) {
+		M_MenuText(ITEMX, y + 10, "Left/right");
+		M_MenuText(ITEMX, y + 30, playModes[rules]);
 	}
 }

@@ -32,7 +32,7 @@
 #define SRAM_MAGIC2		0xAD
 
 #define SRAM_VERSION	4
-#define SRAM_OPTVERSION	4
+#define SRAM_OPTVERSION	5
 #define SRAM_MAXSLOTS	10
 #define SRAM_SLOTSIZE	200
 
@@ -163,19 +163,14 @@ boolean GetSaveInfo(int slotnumber, VINT* mapnum, VINT* skill, VINT *mode, char 
 
 int SaveCount(void)
 {
-	int i;
-	uint8_t temp;
-	int offset = 0;
-
-	// the last slot is used for storing game options
-	for (i = 0; i < optslotnumber; i++) {
-		Mars_ReadSRAM(&temp, offset, 1);
-		if (temp != SRAM_VERSION)
-			break;
-		offset += SRAM_SLOTSIZE;
+	/* Slot zero is the automatic checkpoint. Manual slots can exist first. */
+	for (int slot = optslotnumber - 1; slot >= 0; --slot) {
+		uint8_t version;
+		Mars_ReadSRAM(&version, slot * SRAM_SLOTSIZE, 1);
+		if (version == SRAM_VERSION)
+			return slot + 1;
 	}
-
-	return i;
+	return 0;
 }
 
 int MaxSaveCount(void)
@@ -217,15 +212,16 @@ static void ReadOptions(void)
 
 	Mars_ReadSRAM((void*)&so, optslotoffset, sizeof(saveopts_t));
 
-	if (so.version != SRAM_OPTVERSION)
+	if (so.version != 4 && so.version != SRAM_OPTVERSION)
 		return;
 
 	if (so.detailmode < detmode_potato || so.detailmode >= MAXDETAILMODES)
 		so.detailmode = DETAILMODE_DEFAULT;
 	if (so.sfxvolume > 64)
 		so.sfxvolume = 64;
-	if (so.musicvolume > 64)
-		so.musicvolume = 64;
+	/* Version 4 cartridge options stored an unused CD-only volume. */
+	if ((so.version == 4 && !S_CDAvailable()) || so.musicvolume < 0 || so.musicvolume > 64)
+		so.musicvolume = 32;
 	if (so.controltype >= NUMCONTROLOPTIONS)
 		so.controltype = 0;
 	if (so.musictype < mustype_none || so.musictype > mustype_spcm)
@@ -280,7 +276,7 @@ void ReadEEProm(void)
 {
 	controltype = 0;
 	sfxvolume = 64;
-	musicvolume = 64;
+	musicvolume = 32;
 	viewportNum = R_DefaultViewportSize();
 	musictype = mustype_fm;
 	alwaysrun = 0;

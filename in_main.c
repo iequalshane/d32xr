@@ -54,6 +54,7 @@ typedef struct
 	boolean		valsdrawn;
 	boolean		negativefrag[MAXPLAYERS];
 	int			killvalue[2], itemvalue[2], secretvalue[2], fragvalue[2];
+	int         scoreDigits, levelTitles, scorePercent, colon, timeLabel, parLabel;
 	int 		timevalue;
 	int 		exittic;
 
@@ -87,7 +88,7 @@ void print (int x, int y, const char *string)
 		}
 		else if (c >= 'a' && c <= 'z')
 		{
-			DrawJagobjLump(uchar + c - 'a' + 26, x, y + 4, &w, NULL);
+			DrawJagobjLump(uchar + c - 'a' + 26, x, y, &w, NULL);
 			x = (x + (w + 1)) & ~1;
 		}
 		else if (c >= '0' && c <= '9')
@@ -97,17 +98,17 @@ void print (int x, int y, const char *string)
 		}
 		else if (c == '.')
 		{
-			DrawJagobjLump(uchar + 'z' - 'a' + 27, x, y + 4, &w, NULL);
+			DrawJagobjLump(uchar + 'z' - 'a' + 27, x, y, &w, NULL);
 			x = (x + (w + 1)) & ~1;
 		}
 		else if (c == '!')
 		{
-			DrawJagobjLump(uchar + 'z' - 'a' + 28, x, y + 4, &w, NULL);
+			DrawJagobjLump(uchar + 'z' - 'a' + 28, x, y, &w, NULL);
 			x = (x + (w + 1)) & ~1;
 		}
 		else if (c == '-')
 		{
-			DrawJagobjLump(uchar + 'z' - 'a' + 29, x, y + 4, &w, NULL);
+			DrawJagobjLump(uchar + 'z' - 'a' + 29, x, y, &w, NULL);
 			x = (x + (w + 1)) & ~1;
 		}
 		else
@@ -141,41 +142,42 @@ void IN_DrawValue(int x,int y,int value)
 	}
 }
 
-/* */
-/* Draws 'value' at x, y  */
-/* */
-void IN_DrawPadValue(int x,int y,int value,int minl)
+/* The cartridge stores the original intermission patches uncompressed. */
+static jagobj_t *IN_ScorePatch(int lump)
 {
-	char	v[4];
-	int		j;
-	int		index;
+	return (jagobj_t *)W_POINTLUMPNUM(lump);
+}
 
-	valtostr(v,value);
-	j = mystrlen(v) - 1;
-	while(j >= 0)
-	{
-		int w;
+static void IN_CenterPatch(jagobj_t *patch, int y)
+{
+	DrawJagobj(patch, (320 - BIGSHORT(patch->width)) / 2, y);
+}
 
-		index = (v[j--] - '0');
-		DrawJagobjLump(snums + index, 320, 200, &w, NULL);
+static int IN_ScoreNumber(int x, int y, unsigned value, int places)
+{
+	do {
+		jagobj_t *digit = IN_ScorePatch(interm->scoreDigits + value % 10);
+		x -= BIGSHORT(digit->width);
+		DrawJagobj(digit, x, y);
+		value /= 10;
+		--places;
+	} while (value || places > 0);
+	return x;
+}
 
-		x -= w+2;
-		DrawJagobjLump(snums + index, x, y, NULL, NULL);
+static void IN_ScorePercent(int x, int y, int value)
+{
+	DrawJagobj(IN_ScorePatch(interm->scorePercent), x, y);
+	IN_ScoreNumber(x, y, value, 1);
+}
 
-		minl--;
-	}
-
-	while (minl > 0)
-	{
-		int w;
-
-		DrawJagobjLump(snums + 0, 320, 200, &w, NULL);
-
-		x -= w+2;
-		DrawJagobjLump(snums + 0, x, y, NULL, NULL);
-
-		minl--;
-	}
+static void IN_ScoreTime(int right, unsigned seconds)
+{
+	jagobj_t *colon = IN_ScorePatch(interm->colon);
+	int x = IN_ScoreNumber(right, 168, seconds % 60, 2);
+	x -= BIGSHORT(colon->width);
+	DrawJagobj(colon, x, 169);
+	IN_ScoreNumber(x, 168, seconds / 60, 2);
 }
 
 /* */
@@ -235,14 +237,12 @@ void IN_NetgameDrawer(void)
 		}
 		else
 		{
-			print (28, 50, "Player");
-			print (KVALX - 14, 50, "1");
-			print (KVALX + 80 - 14, 50, "2");
-			DrawJagobj(interm->i_kills, 57, KVALY);
-	 
-			DrawJagobj(interm->i_items, 51, IVALY);
-	 	
-			DrawJagobj(interm->i_secret, 13, SVALY);
+			print(12, 50, "Player");
+			IN_ScoreNumber(224, 50, 1, 1);
+			IN_ScoreNumber(294, 50, 2, 1);
+			DrawJagobj(interm->i_kills, 8, KVALY);
+			DrawJagobj(interm->i_items, 8, IVALY);
+			DrawJagobj(interm->i_secret, 8, SVALY);
 		}
 	}			
 	
@@ -263,19 +263,14 @@ void IN_NetgameDrawer(void)
 	}
 	else
 	{
-		EraseBlock(57 + (mystrlen("Kills") * 15), KVALY, 100, 100);
-		IN_DrawValue(KVALX, KVALY, interm->killvalue[consoleplayer]);
-		IN_DrawValue(KVALX + 80, KVALY, interm->killvalue[!consoleplayer]);
-		IN_DrawValue(IVALX, IVALY, interm->itemvalue[consoleplayer]);
-		IN_DrawValue(IVALX + 80, IVALY, interm->itemvalue[!consoleplayer]);
-		IN_DrawValue(SVALX, SVALY, interm->secretvalue[consoleplayer]);
-		IN_DrawValue(SVALX + 80, SVALY, interm->secretvalue[!consoleplayer]);
-		DrawJagobj(interm->i_percent, KVALX, KVALY);
-		DrawJagobj(interm->i_percent, KVALX + 80, KVALY);
-		DrawJagobj(interm->i_percent, IVALX, IVALY);
-		DrawJagobj(interm->i_percent, IVALX + 80, IVALY);
-		DrawJagobj(interm->i_percent, SVALX, SVALY);
-		DrawJagobj(interm->i_percent, SVALX + 80, SVALY);
+		for (i = 0; i < MAXPLAYERS; ++i)
+		{
+			int player = i ? !consoleplayer : consoleplayer;
+			int x = 224 + 70 * i;
+			IN_ScorePercent(x, KVALY, interm->killvalue[player]);
+			IN_ScorePercent(x, IVALY, interm->itemvalue[player]);
+			IN_ScorePercent(x, SVALY, interm->secretvalue[player]);
+		}
 	}
 }
 
@@ -284,70 +279,40 @@ void IN_NetgameDrawer(void)
 /* */
 void IN_SingleDrawer(void)
 {
-	int length;
-	
-	if(interm->exit == true)
+	static const int parSeconds[] = {120, 360, 480, 200, 360};
+	int level = gamemapinfo->mapNumber - 1;
+
+	if (interm->exit)
 	{
 		interm->killvalue[0] = interm->pstats[0].killpercent;
 		interm->itemvalue[0] = interm->pstats[0].itempercent;
 		interm->secretvalue[0] = interm->pstats[0].secretpercent;
 	}
-		
-	EraseBlock(71 + (mystrlen("Secrets") * 15), 70, 55, 80);
 
-#ifndef MARS
-	if (statsdrawn == false)
-#endif
+	if (interm->exit && interm->nextmapinfo && ticon >= interm->exittic + 30)
 	{
-		const char *mapname = DMAPINFO_STRFIELD(gamemapinfo, name);
-		const char *nextmapname = interm->nextmapinfo ? DMAPINFO_STRFIELD(interm->nextmapinfo, name) : "";
-		boolean countdown = *nextmapname != '\0' && interm->exit && ticon >= interm->exittic + 30;
-
-		if (countdown)
+		if (!(((ticon - interm->exittic - 30) / 16) & 1))
 		{
-			int sec = 0;
-			sec = (unsigned)(ticon - (interm->exittic + 30)) / 16;
-			if (!(sec & 1))
-			{
-				length = mystrlen("Entering");
-				print( (320 - (length * 14)) >> 1, 10, "Entering");
-				length = mystrlen(nextmapname);
-				print( (320 - (length*14)) >> 1, 34, nextmapname);
-			}
-			return;
+			IN_CenterPatch(interm->i_level, 2);
+			IN_CenterPatch(IN_ScorePatch(interm->levelTitles + interm->nextmapinfo->mapNumber - 1), 17);
 		}
-
-		if (*mapname != '\0')
-		{
-			length = mystrlen(mapname);
-			print((320 - (length * 14)) >> 1, 10, mapname);
-			length = mystrlen("Finished");
-			print((320 - (length * 14)) >> 1, 34, "Finished");
-		}
-
-		DrawJagobj(interm->i_kills, 71, KVALY - 10);
-
-		DrawJagobj(interm->i_items, 65, IVALY - 10);
-
-		DrawJagobj(interm->i_secret, 27, SVALY - 10);
-
-		print(73, TVALY - 10, "Time");
+		return;
 	}
-	
-	IN_DrawValue(KVALX + 60, KVALY - 10, interm->killvalue[0]);
-	DrawJagobj(interm->i_percent, KVALX + 60, KVALY - 10);
-	IN_DrawValue(IVALX + 60, IVALY - 10, interm->itemvalue[0]);		
-	DrawJagobj(interm->i_percent, IVALX + 60, IVALY - 10);
-	IN_DrawValue(SVALX + 60, SVALY - 10, interm->secretvalue[0]);
-	DrawJagobj(interm->i_percent, SVALX + 60, SVALY - 10);
 
-	if (interm->timevalue/60 > 0)
-	{
-		IN_DrawValue(TVALX + 8, TVALY - 10, interm->timevalue/60);
-		print(TVALX + 8, TVALY - 10 - 1, "m");
-	}
-	IN_DrawPadValue(TVALX + 58, TVALY - 10, interm->timevalue%60, 2);
-	print(TVALX + 58, TVALY - 10 - 1, "s");
+	IN_CenterPatch(IN_ScorePatch(interm->levelTitles + level), 2);
+	IN_CenterPatch(interm->i_finish, 17);
+
+	DrawJagobj(interm->i_kills, 48, 50);
+	DrawJagobj(interm->i_items, 48, 68);
+	DrawJagobj(interm->i_secret, 48, 86);
+	IN_ScorePercent(270, 50, interm->killvalue[0]);
+	IN_ScorePercent(270, 68, interm->itemvalue[0]);
+	IN_ScorePercent(270, 86, interm->secretvalue[0]);
+
+	DrawJagobj(IN_ScorePatch(interm->timeLabel), 16, 168);
+	IN_ScoreTime(144, interm->timevalue);
+	DrawJagobj(IN_ScorePatch(interm->parLabel), 176, 168);
+	IN_ScoreTime(304, parSeconds[level]);
 }
 
 void IN_Start (void)
@@ -471,6 +436,13 @@ void IN_Start (void)
 #ifdef MARS
 	W_LoadPWAD(PWAD_NONE);
 #endif
+
+	interm->scoreDigits = W_GetNumForName("WINUM0");
+	interm->levelTitles = W_GetNumForName("WILV00");
+	interm->scorePercent = W_GetNumForName("WIPCNT");
+	interm->colon = W_GetNumForName("WICOLON");
+	interm->timeLabel = W_GetNumForName("WITIME");
+	interm->parLabel = W_GetNumForName("WIPAR");
 
 	snums = W_CheckNumForName("NUM_0");
 

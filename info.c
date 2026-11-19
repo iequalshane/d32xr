@@ -673,9 +673,9 @@ STATE(SPR_BOSS,2,2,A_Chase,S_BOSS_RUN6),	/* S_BOSS_RUN5 */
 STATE(SPR_BOSS,2,2,A_Chase,S_BOSS_RUN7),	/* S_BOSS_RUN6 */
 STATE(SPR_BOSS,3,2,A_Chase,S_BOSS_RUN8),	/* S_BOSS_RUN7 */
 STATE(SPR_BOSS,3,2,A_Chase,S_BOSS_RUN1),	/* S_BOSS_RUN8 */
-STATE(SPR_BOSS,4,4,A_FaceTarget,S_BOSS_ATK2),	/* S_BOSS_ATK1 */
-STATE(SPR_BOSS,5,4,A_FaceTarget,S_BOSS_ATK3),	/* S_BOSS_ATK2 */
-STATE(SPR_BOSS,6,4,A_BruisAttack,S_BOSS_RUN1),	/* S_BOSS_ATK3 */
+STATE(SPR_BOSS,4,2,A_FaceTarget,S_BOSS_ATK2),	/* S_BOSS_ATK1 */
+STATE(SPR_BOSS,5,2,A_FaceTarget,S_BOSS_ATK3),	/* S_BOSS_ATK2 */
+STATE(SPR_BOSS,6,0,A_BruisAttack,S_BOSS_RUN1),	/* S_BOSS_ATK3 */
 STATE(SPR_BOSS,7,1,NULL,S_BOSS_PAIN2),	/* S_BOSS_PAIN */
 STATE(SPR_BOSS,7,1,A_Pain,S_BOSS_RUN1),	/* S_BOSS_PAIN2 */
 STATE(SPR_BOSS,8,4,NULL,S_BOSS_DIE2),	/* S_BOSS_DIE1 */
@@ -1113,8 +1113,8 @@ sfx_pistol,		/* attacksound */
 sfx_popain,		/* painsound */
 S_POSS_PAIN,		/* painstate */
 200,		/* painchance */
-0,		/* meleestate */
-S_POSS_ATK1,		/* missilestate */
+S_POSS_ATK1,		/* meleestate */
+S_NULL,		/* missilestate */
 S_POSS_DIE1,		/* deathstate */
 S_POSS_XDIE1,		/* xdeathstate */
 sfx_podth1,		/* deathsound */
@@ -1138,8 +1138,8 @@ sfx_posit2,		/* seesound */
 sfx_popain,		/* painsound */
 S_SPOS_PAIN,		/* painstate */
 170,		/* painchance */
-0,		/* meleestate */
-S_SPOS_ATK1,		/* missilestate */
+S_SPOS_ATK1,		/* meleestate */
+S_NULL,		/* missilestate */
 S_SPOS_DIE1,		/* deathstate */
 S_SPOS_XDIE1,		/* xdeathstate */
 sfx_podth2,		/* deathsound */
@@ -1469,9 +1469,9 @@ S_BOSS_DIE1,		/* deathstate */
 S_NULL,		/* xdeathstate */
 sfx_brsdth,		/* deathsound */
 sfx_dmact,		/* activesound */
-24,		/* radius */
-64,		/* height */
-8,		/* speed */
+44,		/* radius */
+100,		/* height */
+0,		/* speed */
 0,		/* damage */
 1000,		/* mass */
 MF_SOLID|MF_SHOOTABLE|MF_COUNTKILL		/* flags */

@@ -66,6 +66,7 @@ int Mars_FRTCounter2Msec(int c);
 
 void Mars_PlayTrack(char usecd, int playtrack, const char *name, int offset, int length, char looping);
 void Mars_StopTrack(void);
+void Mars_SetFMVolume(uint8_t attenuation);
 void Mars_SetMusicVolume(uint8_t volume);
 int Mars_GetMusicStatus(void);
 

@@ -47,8 +47,8 @@ boolean P_GiveAmmo (player_t *player, ammotype_t ammo, int num)
 		num *= clipammo[ammo];
 	else
 		num = clipammo[ammo]/2;
-	if (gameskill == sk_baby)
-		num <<= 1;			/* give double ammo in trainer mode */
+	if (gameskill == sk_baby || gameskill == sk_nightmare)
+		num <<= 1;
 		
 	oldammo = player->ammo[ammo];
 	player->ammo[ammo] += num;
@@ -301,13 +301,13 @@ int P_TouchSpecialThing2 (mobj_t *special, mobj_t *toucher)
 	case SPR_ARM1:
 		if (!P_GiveArmor (player, 1))
 			return -1;
-		player->message = "Picked up the armor.";
+		player->message = "Picked up the Chex(R) Armor.";
 		break;
 		
 	case SPR_ARM2:
 		if (!P_GiveArmor (player, 2))
 			return -1;
-		player->message = "Picked up the MegaArmor!";
+		player->message = "Picked up the Super Chex(R) Armor!";
 		break;
 
 /* */
@@ -316,16 +316,16 @@ int P_TouchSpecialThing2 (mobj_t *special, mobj_t *toucher)
 	case SPR_STIM:
 		if (!P_GiveBody (player, 10))
 			return -1;
-		player->message = "Picked a stimpack.";
+		player->message = "Picked up a bowl of fruit.";
 		break;
 	case SPR_MEDI:
 		oldhealth = player->health;
 		if (!P_GiveBody (player, 25))
 			return -1;
 		if (oldhealth < 25)
-			player->message = "Picked a medikit that you REALLY need!";
+			player->message = "Picked up some needed vegetables!";
 		else
-			player->message = "Picked up a medikit.";
+			player->message = "Picked up a bowl of vegetables.";
 		break;
 
 /* */
@@ -351,7 +351,7 @@ int P_TouchSpecialThing2 (mobj_t *special, mobj_t *toucher)
 	case SPR_SUIT:
 		if (!P_GivePower (player, pw_ironfeet))
 			return -1;
-		player->message = "Radiation Shielding Suit";
+		player->message = "Slimeproof Suit";
 		break;
 	case SPR_PMAP:
 		if (!P_GivePower (player, pw_allmap))
@@ -403,26 +403,26 @@ void P_TouchSpecialThing (mobj_t *special, mobj_t *toucher)
 /* bonus items */
 /* */
 	case SPR_BON1:
-		player->health+=2;		/* can go over 100% */
+		player->health++;		/* can go over 100% */
 		if (player->health > 200)
 			player->health = 200;
 		player->mo->health = player->health;
-		player->message = "Picked up a health bonus.";
+		player->message = "Picked up a glass of water.";
 		break;
 	case SPR_BON2:
-		player->armorpoints+=2;		/* can go over 100% */
+		player->armorpoints++;		/* can go over 100% */
 		if (player->armorpoints > 200)
 			player->armorpoints = 200;
 		if (!player->armortype)
 			player->armortype = 1;
-		player->message = "Picked up an armor bonus.";
+		player->message = "Picked up slime repellent.";
 		break;
 	case SPR_SOUL:
 		player->health += 100;
 		if (player->health > 200)
 			player->health = 200;
 		player->mo->health = player->health;
-		player->message = "Supercharge!";
+		player->message = "Supercharge Breakfast!";
 		sound = sfx_getpow;
 		break;
 	case SPR_MEGA:
@@ -448,42 +448,42 @@ void P_TouchSpecialThing (mobj_t *special, mobj_t *toucher)
 			if (!P_GiveAmmo (player,am_clip,1))
 				return;
 		}
-		player->message = "Picked up a clip.";
+		player->message = "Picked up a mini zorch recharge.";
 		break;
 	case SPR_AMMO:
 		if (!P_GiveAmmo (player, am_clip,5))
 			return;
-		player->message = "Picked up a box of bullets.";
+		player->message = "Picked up a mini zorch pack.";
 		break;
 	case SPR_ROCK:
 		if (!P_GiveAmmo (player, am_misl,1))
 			return;
-		player->message = "Picked up a rocket.";
+		player->message = "Picked up a zorch propulsor recharge.";
 		break;	
 	case SPR_BROK:
 		if (!P_GiveAmmo (player, am_misl,5))
 			return;
-		player->message = "Picked up a box of rockets.";
+		player->message = "Picked up a zorch propulsor pack.";
 		break;
 	case SPR_CELL:
 		if (!P_GiveAmmo (player, am_cell,1))
 			return;
-		player->message = "Picked up an energy cell.";
+		player->message = "Picked up a phasing zorcher recharge.";
 		break;
 	case SPR_CELP:
 		if (!P_GiveAmmo (player, am_cell,5))
 			return;
-		player->message = "Picked up an energy cell pack.";
+		player->message = "Picked up a phasing zorcher pack.";
 		break;
 	case SPR_SHEL:
 		if (!P_GiveAmmo (player, am_shell,1))
 			return;
-		player->message = "Picked up 4 shotgun shells.";
+		player->message = "Picked up a large zorcher recharge.";
 		break;
 	case SPR_SBOX:
 		if (!P_GiveAmmo (player, am_shell,5))
 			return;
-		player->message = "Picked up a box of shotgun shells.";
+		player->message = "Picked up a large zorcher pack.";
 		break;		
 	case SPR_BPAK:
 		if (!player->backpack)
@@ -494,7 +494,7 @@ void P_TouchSpecialThing (mobj_t *special, mobj_t *toucher)
 		}
 		for (i=0 ; i<NUMAMMO ; i++)
 			P_GiveAmmo (player, i, 1);
-		player->message = "Picked up a backpack full of ammo!";
+		player->message = "Picked up a Zorchpak!";
 		break;
 
 		
@@ -504,43 +504,43 @@ void P_TouchSpecialThing (mobj_t *special, mobj_t *toucher)
 	case SPR_BFUG:
 		if (!P_GiveWeapon (player, wp_bfg, false) )
 			return;
-		player->message = "You got the BFG9000!  Oh, yes.";
+		player->message = "You got the LAZ Device!";
 		sound = sfx_wpnup;	
 		break;
 	case SPR_MGUN:
 		if (!P_GiveWeapon (player, wp_chaingun, false) )
 			return;
-		player->message = "You got the chaingun!";
+		player->message = "You got the Rapid Zorcher!";
 		sound = sfx_wpnup;	
 		break;
 	case SPR_CSAW:
 		if (!P_GiveWeapon (player, wp_chainsaw, false) )
 			return;
-		player->message = "A chainsaw!  Find some meat!";
+		player->message = "You got the Super Bootspork!";
 		sound = sfx_wpnup;	
 		break;
 	case SPR_LAUN:
 		if (!P_GiveWeapon (player, wp_missile, false) )
 			return;
-		player->message = "You got the rocket launcher!";
+		player->message = "You got the Zorch Propulsor!";
 		sound = sfx_wpnup;	
 		break;
 	case SPR_PLAS:
 		if (!P_GiveWeapon (player, wp_plasma, ( special->flags&MF_DROPPED ) != 0) )
 			return;
-		player->message = "You got the plasma gun!";
+		player->message = "You got the Phasing Zorcher!";
 		sound = sfx_wpnup;	
 		break;
 	case SPR_SHOT:
 		if (!P_GiveWeapon (player, wp_shotgun, ( special->flags&MF_DROPPED ) != 0) )
 			return;
-		player->message = "You got the shotgun!";
+		player->message = "You got the Large Zorcher!";
 		sound = sfx_wpnup;	
 		break;
 	case SPR_SGN2:
 		if (!P_GiveWeapon (player, wp_supershotgun, ( special->flags&MF_DROPPED ) != 0) )
 			return;
-		player->message = "You got the super shotgun!";
+		player->message = "You got the Super Large Zorcher!";
 		sound = sfx_wpnup;	
 		break;
 
@@ -549,7 +549,7 @@ void P_TouchSpecialThing (mobj_t *special, mobj_t *toucher)
 	/* leave cards for everyone */
 	case SPR_BKEY:
 		if (!player->cards[it_bluecard])
-			player->message = "Picked up a blue keycard.";
+			player->message = "Picked up a blue key.";
 		P_GiveCard(player, it_bluecard);
 		sound = sfx_None;
 		if (netgame)
@@ -557,7 +557,7 @@ void P_TouchSpecialThing (mobj_t *special, mobj_t *toucher)
 		break;
 	case SPR_YKEY:
 		if (!player->cards[it_yellowcard])
-			player->message = "Picked up a yellow keycard.";
+			player->message = "Picked up a yellow key.";
 		P_GiveCard(player, it_yellowcard);
 		sound = sfx_None;
 		if (netgame)
@@ -565,7 +565,7 @@ void P_TouchSpecialThing (mobj_t *special, mobj_t *toucher)
 		break;
 	case SPR_RKEY:
 		if (!player->cards[it_redcard])
-			player->message = "Picked up a red keycard.";
+			player->message = "Picked up a red key.";
 		P_GiveCard(player, it_redcard);
 		sound = sfx_None;
 		if (netgame)
@@ -690,12 +690,6 @@ void P_KillMobj (mobj_t *source, mobj_t *target)
 /* */
 	switch (target->type)
 	{
-	case MT_POSSESSED:
-		item = MT_CLIP;
-		break;
-	case MT_SHOTGUY:
-		item = MT_SHOTGUN;
-		break;
 	case MT_CHAINGUY:
 		item = MT_CHAINGUN;
 		break;

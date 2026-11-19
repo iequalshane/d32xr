@@ -394,6 +394,10 @@ void AM_Control (player_t *player)
 #endif
 	int actionbtns = BT_ATTACK | BT_STRAFE | BT_USE;
 
+	/* Only the console player's automap is drawn in split-screen. */
+	if (splitscreen && player != &players[consoleplayer])
+		return;
+
 	buttons = player->ticbuttons;
 	oldbuttons = player->oldticbuttons;
 

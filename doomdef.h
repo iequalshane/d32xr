@@ -13,7 +13,7 @@
 
 /*define	MARS */
 
-#define CINEMATIC_INTRO "VIDEO/IDLOGO.ROQ"
+/* The cartridge starts at the Chex Quest title screen. */
 
 #define LZSS_BUF_SIZE	0x1000
 
@@ -1024,6 +1024,13 @@ void GS_Drawer (void);
 
 extern	VINT	o_musictype;
 
+typedef enum { om_options, om_controls, om_quit } optionmenu_t;
+void M_MenuText(int x, int y, const char *text);
+void M_MenuPrompt(int centerX, int y, const char *text);
+void M_MenuSmall(int x, int row, const char *text);
+void O_OpenSettings(optionmenu_t menu);
+boolean O_SettingsTicker(player_t *player);
+void O_DrawSettings(int cursorLump);
 void O_Init (void);
 void O_Control (player_t *player);
 void O_Drawer (void);

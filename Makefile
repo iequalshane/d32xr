@@ -1,13 +1,19 @@
+.DEFAULT_GOAL := rom
+ENABLE_DMA_SOUND ?= 1
+USE_SMALL_LUMPS ?= 1
+MIPLEVELS ?= 1
+DISABLE_CDFS ?= 1
+
 ifdef GENDEV
 ROOTDIR = $(GENDEV)
 else
 ROOTDIR = /opt/toolchains/sega
 endif
 
-TARGET ?= D32XR
-WAD ?= doom32xf.wad
+TARGET ?= ChexQuest
+WAD ?= build/cartridge.wad
 BINSIZE = 210
-TITLE ?= DOOM 32X FUSION
+TITLE ?= CHEX QUEST 32X
 VERSION ?= 0.1
 MAPPER = SEGA 32X
 
@@ -80,6 +86,7 @@ OBJS = \
 	am_main.o \
 	st_main.o \
 	m_main.o \
+	chex_password.o \
 	o_main.o \
 	comnjag.o \
 	vsprintf.o \
@@ -155,9 +162,9 @@ reldebug: $(TARGET).32x
 all: release
 
 m68k.bin:
-	make -C src-md
+	$(MAKE) -C src-md TARGET=m68k
 
-$(TARGET).32x: $(TARGET).elf romheaderfix
+$(TARGET).32x: $(TARGET).elf romheaderfix $(WAD)
 	$(OBJC) -O binary $< temp2.bin
 	$(DD) if=temp2.bin of=temp.bin bs=$(BINSIZE)K conv=sync
 	rm -f temp3.bin
@@ -208,3 +215,31 @@ romheaderfix:
 	gcc -o romheaderfix/romheaderfix romheaderfix/romheaderfix.c
 
 .PHONY: realbinsize romheaderfix
+
+.PHONY: rom assets
+rom: release
+	@test "$$(wc -c < $(TARGET).32x)" -eq 4194304
+
+HOSTCC ?= cc
+CHEX_WAD ?= build/chex.wad
+OPN_REV = 9ac90f8f354492390a64a201bfdcb29749776d0f
+
+assets: build/cartridge.wad
+
+build:
+	mkdir -p $@
+
+build/compnodes: tools/compnodes.c | build
+	$(HOSTCC) -O2 $< -o $@
+
+build/libopn/CMakeLists.txt: | build
+	git clone https://github.com/Wohlstand/libOPNMIDI.git build/libopn
+	git -C build/libopn checkout --detach $(OPN_REV)
+
+build/opn-build/midi2vgm: build/libopn/CMakeLists.txt
+	cmake -S build/libopn -B build/opn-build -DWITH_MIDI2VGM=ON -DUSE_VGM_FILE_DUMPER=ON -DCMAKE_BUILD_TYPE=Release
+	cmake --build build/opn-build --target midi2vgm
+
+build/cartridge.wad: $(CHEX_WAD) tools/cartridge.py tools/walls.py tools/music.py campaign.txt build/compnodes build/opn-build/midi2vgm content/files/m_help
+	python3 tools/cartridge.py "$(CHEX_WAD)" $@.tmp
+	mv $@.tmp $@

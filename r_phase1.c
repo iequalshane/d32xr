@@ -20,8 +20,6 @@ __attribute__((aligned(4)))
 
 #define MAXSEGS 32
 
-#define HEIGHT16(x) ((int16_t)((uint32_t)(x) >> HEIGHTINTBITS))
-
 typedef struct
 {
    cliprange_t *newend;
@@ -171,10 +169,9 @@ static boolean R_CheckBBox(rbspWork_t *rbsp, int16_t bspcoord_[4])
    sx2 = (sx1 & 0xffff) - 1;
    sx1 = sx1 >>    16;
 
-   start = rbsp->solidsegs - 1;
-   do {
+   start = rbsp->solidsegs;
+   while(start->last < sx2)
       ++start;
-   } while (start->last < sx2);
 
    // does the clippost contain the new span?
    if(sx1 >= start->first && sx2 <= start->last)
@@ -195,8 +192,7 @@ static void R_WallEarlyPrep(rbspWork_t *rbsp, viswall_t* segl)
    int        b_texturemid, t_texturemid, m_texturemid;
    short      skyhack;
    short      actionbits;
-   int16_t    textureoffset;
-   fixed_t    rowoffset;
+   int16_t    rowoffset, textureoffset;
    const short liflags = li->flags;
 
    {
@@ -205,9 +201,8 @@ static void R_WallEarlyPrep(rbspWork_t *rbsp, viswall_t* segl)
       textureoffset = si->textureoffset & 0xfff;
       textureoffset <<= 4; // sign extend
       textureoffset >>= 4; // sign extend
-      // 12-bit row offset in 16.16; bits above 27 may differ from a real
-      // sign extension, but they are dropped by HEIGHT16()
-      rowoffset = ((si->textureoffset & 0xf000) << 12) | ((unsigned)si->rowoffset << 16);
+      rowoffset = (si->textureoffset & 0xf000) | ((unsigned)si->rowoffset << 4);
+      rowoffset >>= 4; // sign extend
 
       f_ceilingpic    = *(int8_t *)&front_sector->ceilingpic == -1 ? -1 : front_sector->ceilingpic;
       f_lightlevel    = front_sector->lightlevel;
@@ -253,7 +248,7 @@ static void R_WallEarlyPrep(rbspWork_t *rbsp, viswall_t* segl)
       {
          actionbits |= (AC_ADDFLOOR|AC_NEWFLOOR);
       }
-      segl->floorheight = segl->floornewheight = HEIGHT16(f_floorheight);
+      segl->floorheight = segl->floornewheight = f_floorheight>>HEIGHTINTBITS;
 
       if(!skyhack                                         && // not a sky hack wall
          (f_ceilingheight > 0 || f_ceilingpic == -1)      && // ceiling below camera, or sky
@@ -267,9 +262,9 @@ static void R_WallEarlyPrep(rbspWork_t *rbsp, viswall_t* segl)
          else
             actionbits |= (AC_ADDCEILING|AC_NEWCEILING);
       }
-      segl->ceilingheight = segl->ceilingnewheight = HEIGHT16(f_ceilingheight);
+      segl->ceilingheight = segl->ceilingnewheight = f_ceilingheight>>HEIGHTINTBITS;
 
-      segl->t_topheight = HEIGHT16(f_ceilingheight); // top of texturemap
+      segl->t_topheight = f_ceilingheight>>HEIGHTINTBITS; // top of texturemap
 
       if (!(li->sidenum[1] >= 0))
       {
@@ -284,8 +279,8 @@ static void R_WallEarlyPrep(rbspWork_t *rbsp, viswall_t* segl)
             else
                t_texturemid = f_ceilingheight;
 
-            t_texturemid += rowoffset;                               // add in sidedef texture offset
-            segl->t_bottomheight = HEIGHT16(f_floorheight); // set bottom height
+            t_texturemid += rowoffset<<FRACBITS;                               // add in sidedef texture offset
+            segl->t_bottomheight = f_floorheight>>HEIGHTINTBITS; // set bottom height
             actionbits |= (AC_SOLIDSIL|AC_TOPTEXTURE);                   // solid line; draw middle texture only
          }
       }
@@ -310,7 +305,7 @@ static void R_WallEarlyPrep(rbspWork_t *rbsp, viswall_t* segl)
                else
                   m_texturemid = b_ceilingheight;
             }
-            m_texturemid += rowoffset; // add in sidedef texture offset
+            m_texturemid += rowoffset<<FRACBITS; // add in sidedef texture offset
             actionbits |= AC_MIDTEXTURE; // set bottom and top masks
          }
 
@@ -325,10 +320,10 @@ static void R_WallEarlyPrep(rbspWork_t *rbsp, viswall_t* segl)
                else
                   b_texturemid = b_floorheight;
 
-               b_texturemid += rowoffset; // add in sidedef texture offset
+               b_texturemid += rowoffset<<FRACBITS; // add in sidedef texture offset
 
-               segl->b_topheight = segl->floornewheight = HEIGHT16(b_floorheight);
-               segl->b_bottomheight = HEIGHT16(f_floorheight);
+               segl->b_topheight = segl->floornewheight = b_floorheight>>HEIGHTINTBITS;
+               segl->b_bottomheight = f_floorheight>>HEIGHTINTBITS;
                actionbits |= (AC_BOTTOMTEXTURE|AC_NEWFLOOR); // generate bottom wall and floor
             }
          }
@@ -344,9 +339,9 @@ static void R_WallEarlyPrep(rbspWork_t *rbsp, viswall_t* segl)
                else
                   t_texturemid = b_ceilingheight + (textures[segl->t_texturenum].height << FRACBITS);
 
-               t_texturemid += rowoffset; // add in sidedef texture offset
+               t_texturemid += rowoffset<<FRACBITS; // add in sidedef texture offset
 
-               segl->t_bottomheight = segl->ceilingnewheight = HEIGHT16(b_ceilingheight);
+               segl->t_bottomheight = segl->ceilingnewheight = b_ceilingheight>>HEIGHTINTBITS;
                actionbits |= (AC_NEWCEILING|AC_TOPTEXTURE); // draw top texture and ceiling
             }
          }
@@ -382,9 +377,9 @@ static void R_WallEarlyPrep(rbspWork_t *rbsp, viswall_t* segl)
 
       // save local data to the viswall structure
       segl->actionbits    = actionbits;
-      segl->t_texturemid  = HEIGHT16(t_texturemid);
-      segl->b_texturemid  = HEIGHT16(b_texturemid);
-      segl->m_texturemid  = HEIGHT16(m_texturemid);
+      segl->t_texturemid  = t_texturemid>>HEIGHTINTBITS;
+      segl->b_texturemid  = b_texturemid>>HEIGHTINTBITS;
+      segl->m_texturemid  = m_texturemid>>HEIGHTINTBITS;
       segl->seglightlevel = (lightshift << 8) | f_lightlevel;
       segl->offset        = textureoffset;
    }
@@ -397,8 +392,8 @@ static void R_StoreWallRange(rbspWork_t *rbsp, int start, int stop)
 {
    viswall_t *rw;
    int newstop, split;
-   viswall_t *lastwall = vd->viswalls + MAXWALLCMDS;
-   const int maxlen = (unsigned)centerX/2;
+   int numwalls = vd->lastwallcmd - vd->viswalls;
+   const int maxlen = centerX/2;
    // split long segments
    int len = stop - start + 1;
 
@@ -417,22 +412,24 @@ static void R_StoreWallRange(rbspWork_t *rbsp, int start, int stop)
    }
 
    do {
-      rw = vd->lastwallcmd;
-      if (rw == lastwall)
+      if (numwalls == MAXWALLCMDS)
          return;
 
+      rw = vd->lastwallcmd;
       rw->seg = rbsp->curline;
       rw->start = start;
       rw->stop = newstop;
       rw->scalestep = rbsp->lineangle1;
       rw->actionbits = 0;
-      vd->lastwallcmd = rw + 1;
+      ++vd->lastwallcmd;
 
       R_WallEarlyPrep(rbsp, rw);
 
 #ifdef MARS
       Mars_R_WallNext();
 #endif
+
+      numwalls++;
 
       start = newstop + 1;
       newstop += maxlen;
@@ -454,10 +451,9 @@ static void R_ClipWallSegment(rbspWork_t *rbsp, fixed_t first, fixed_t last, boo
 
     // find the first range that touches the range (adjacent pixels are touching)
     scratch = first - 1;
-    start = rbsp->solidsegs - 1;
-    do {
+    start = rbsp->solidsegs;
+    while (start->last < scratch)
         ++start;
-    } while (start->last < scratch);
 
     // add visible pieces and close up holes
     if (first < start->first)

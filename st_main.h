@@ -6,25 +6,25 @@
 #define	FLASHDELAY	2		/* # of tics delay (1/30 sec) */
 #define FLASHTIMES	6		/* # of times to flash new frag amount (EVEN!) */
 
-#define AMMOX		52
-#define AMMOY		14
+#define AMMOX		45
+#define AMMOY		3
 
-#define HEALTHX		104
+#define HEALTHX		88
 #define HEALTHY		AMMOY
 
-#define KEYX		260
-#define REDKEYY		4
-#define BLUKEYY		14
-#define YELKEYY		24
-#define KEYW		9
-#define KEYH		7
+#define KEYX		240
+#define BLUKEYY		4
+#define YELKEYY		14
+#define REDKEYY		24
+#define KEYW		12
+#define KEYH		8
 
-#define FACEX		156
-#define FACEY		2
+#define FACEX		141
+#define FACEY		1
 #define FACEW		32
 #define FACEH		32
 
-#define ARMORX		240
+#define ARMORX		219
 #define ARMORY		HEALTHY
 
 #define STATSX		308

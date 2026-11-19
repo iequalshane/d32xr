@@ -88,7 +88,7 @@ char 			spcmDir[9] = { 0 };
 sfxchannel_t	sfxchannels[SFXCHANNELS];
 
 VINT 			sfxvolume = 64;	/* range 0 - 64 */
-VINT 			musicvolume = 64;	/* range 0 - 64 */
+VINT 			musicvolume = 32;	/* range 0 - 64 */
 
 static VINT 	oldmusvol = -1;
 
@@ -713,6 +713,10 @@ int S_PreUpdateSounds(void)
 void S_UpdateSounds(void)
 {
 	if (oldmusvol != musicvolume) {
+		/* YM2612 total level uses 0.75 dB steps. These eight intervals
+		   give linear amplitude steps, with 8 TL steps at half volume. */
+		static const uint8_t attenuation[] = {127, 24, 16, 11, 8, 5, 3, 2, 0};
+		Mars_SetFMVolume(attenuation[(musicvolume + 4) / 8]);
 		if (S_CDAvailable()) {
 			int vol = musicvolume*4;
 			Mars_SetMusicVolume(vol > 255 ? 255 : vol);

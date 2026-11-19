@@ -35,11 +35,10 @@ void R_DrawMaskedSegRange(viswall_t *seg, int x, int stopx)
       return;
 
    texture   = &textures[seg->m_texturenum];
-   patch     = W_POINTLUMPNUM(texture->lumpnum);
-   pixels    = /*W_POINTLUMPNUM(texture->lumpnum+1)*/texture->data[0];
-
-   if (texture->lumpnum < firstsprite || texture->lumpnum >= firstsprite + numsprites)
+   if (texture->masklump < 0)
       return;
+   patch = W_POINTLUMPNUM(texture->masklump);
+   pixels = R_CheckSpritePixels(texture->masklump);
 
    spropening = seg->clipbounds;
    maskedcol  = seg->clipbounds + (seg->stop - seg->start + 1);
@@ -53,10 +52,6 @@ void R_DrawMaskedSegRange(viswall_t *seg, int x, int stopx)
    do {
       int light          = maskedcol[x];
       int colnum         = maskedcol[x] & widthmask;
-      fixed_t scale      = scalefrac;
-#ifdef MARS
-      int32_t t, divunit;
-#endif
 
       spryscale = scalefrac;
       scalefrac += fracstep;  
@@ -67,31 +62,28 @@ void R_DrawMaskedSegRange(viswall_t *seg, int x, int stopx)
       light &= OPENMARK;
       maskedcol[x] = OPENMARK;
 
-      int topclip     = (spropening[x] >> 8);
-      int bottomclip  = (spropening[x] & 0xff) - 1;
-      if (topclip > bottomclip)
-         continue; // column is fully covered
-
 #ifdef MARS
-      __asm volatile (
-         "mov #-128, %1\n\t"
-         "add %1, %1 /* %1 is now 0xFFFFFF00 */ \n\t"
-         "mov.l %2, @(0, %1) /* set 32-bit divisor */ \n\t"
-         "mov #0, %0\n\t"
-         "mov.l %0, @(16, %1) /* set high bits of the 64-bit dividend */ \n\t"
-         "mov #-1, %0\n\t"
-         "mov.l %0, @(20, %1) /* set low  bits of the 64-bit dividend, start divide */\n\t"
-         : "=&r" (t), "=&r"(divunit) : "r" (scale));
+        int32_t t, divunit;
+        __asm volatile (
+           "mov #-128, %1\n\t"
+           "add %1, %1 /* %1 is now 0xFFFFFF00 */ \n\t"
+           "mov.l %2, @(0, %1) /* set 32-bit divisor */ \n\t"
+           "mov #0, %0\n\t"
+           "mov.l %0, @(16, %1) /* set high bits of the 64-bit dividend */ \n\t"
+           "mov #-1, %0\n\t"
+           "mov.l %0, @(20, %1) /* set low  bits of the 64-bit dividend, start divide */\n\t"
+           : "=&r" (t), "=&r"(divunit) : "r" (scalefrac));
+#else
+      fixed_t scale = scalefrac;
 #endif
 
+      int topclip     = (spropening[x] >> 8);
+      int bottomclip  = (spropening[x] & 0xff) - 1;
       byte *src;
       column_t *column;
       unsigned columnofs = BIGSHORT(patch->columnofs[colnum]);
       byte *columnptr = ((byte *)patch + (columnofs & ~COLUMN_INLINE));
       fixed_t sprtop, iscale, fracbase;
-
-      if (*(int8_t *)columnptr == -1)
-         continue;
 
       sprtop = FixedMul(seg->m_texturemid<<HEIGHTINTBITS, spryscale);
       sprtop = centerYFrac - sprtop;
@@ -101,10 +93,13 @@ void R_DrawMaskedSegRange(viswall_t *seg, int x, int stopx)
          "mov #-128, %0\n\t"
          "add %0, %0 /* %0 is now 0xFFFFFF00 */ \n\t"
          "mov.l @(20, %0), %0 /* get 32-bit quotient */ \n\t"
-         : "=&r" (iscale) : "r"(sprtop), "r"(topclip), "r"(bottomclip));
+         : "=r" (iscale));
 #else
-      iscale = 0xffffffffu / scale;
+      iscale = 0xffffffffu / scalefrac;
 #endif
+
+      if (*columnptr == 0xff)
+         continue;
 
       fracbase = FixedMul(-sprtop, iscale);
 
@@ -191,7 +186,6 @@ void R_DrawVisSprite(vissprite_t *vis, unsigned short *spropening, int sprscreen
    patch     = W_POINTLUMPNUM(vis->patchnum);
 #ifdef MARS
    pixels    = R_CheckSpritePixels(vis->patchnum);
-   __asm volatile("" : "+r"(pixels)); /* materialize: avoid base+offset re-add per post */
 #else
    pixels    = vis->pixels;
 #endif
@@ -236,23 +230,17 @@ void R_DrawVisSprite(vissprite_t *vis, unsigned short *spropening, int sprscreen
    {
       byte *src;
       column_t *column;
-      int colnum       = xfrac>>FRACBITS;
+      unsigned columnofs = BIGSHORT(patch->columnofs[xfrac>>FRACBITS]);
+      byte *columnptr  = ((byte *)patch + (columnofs & ~COLUMN_INLINE));
       int topclip      = (spropening[x] >> 8);
       int bottomclip   = (spropening[x] & 0xff) - 1;
 
       xfrac += fracstep;
 
-      // column is fully covered: don't touch the patch data at all
-      if (topclip > bottomclip)
-         continue;
-
-      unsigned columnofs = BIGSHORT(patch->columnofs[colnum]);
-      byte *columnptr  = ((byte *)patch + (columnofs & ~COLUMN_INLINE));
-
       // column loop
       // a post record has up to four bytes: topdelta length pixelofs*2
       // an inlined column is a single post: topdelta count pixels...
-      if (*(int8_t *)columnptr == -1)
+      if (*columnptr == 0xff)
          continue;
 
       src = columnptr + 2;
@@ -362,7 +350,6 @@ void R_ClipVisSprite(vissprite_t *vis, unsigned short *spropening, int sprscreen
    int top;        // r19
    int bottom;     // r20
    unsigned short openmark = OPENMARK;
-   unsigned vph = (uint16_t)viewportHeight;
    viswall_t *ds;      // r17
 
    x1  = vis->x1;
@@ -384,18 +371,13 @@ void R_ClipVisSprite(vissprite_t *vis, unsigned short *spropening, int sprscreen
       if (x2 >= viewportWidth)
          x2 = viewportWidth-1;
    }
-#endif
 
    if (x1 > x2)
        return;
+#endif
 
-   {
-      unsigned short *p = spropening + x2 + 1;
-      x = x2 - x1 + 1;
-      do {
-         *--p = vph;
-      } while (--x);
-   }
+   for(x = x1; x <= x2; x++)
+      spropening[x] = viewportHeight;
 
    do
    {
@@ -432,7 +414,7 @@ void R_ClipVisSprite(vissprite_t *vis, unsigned short *spropening, int sprscreen
 
          if (silhouette == 2)
          {
-            mark = (int8_t)vph;
+            mark = (int8_t)viewportHeight;
             popn++, psil++;
          }
 
@@ -445,20 +427,17 @@ void R_ClipVisSprite(vissprite_t *vis, unsigned short *spropening, int sprscreen
       }
       else if (silhouette == 3)
       {
-         int ivph = vph, omark = openmark;
-         sil += x;
-         opening += x;
          do
          {
-            int clip = *--sil;
-            top    = opening[-1];
+            int16_t clip = *sil++;
+            top    = *opening;
             bottom = top & 0xff;
-            top = top & omark;
-            if(bottom == ivph)
+            top = top & openmark;
+            if(bottom == viewportHeight)
                bottom = clip & 0xff;
             if(top == 0)
-               top = clip & omark;
-            *--opening = top | bottom;
+               top = clip & openmark;
+            *opening++ = top | bottom;
          } while (--x);
       }
       else
@@ -553,19 +532,17 @@ static void R_DrawPSprites(int sprscreenhalf)
     for (spr = vd->lastsprite_p; spr < vd->vissprite_p; spr++)
     {
         vissprite_t *vis = (vissprite_t *)spr;
-        int x1 = vis->x1, x2 = vis->x2;
+        unsigned stopx = vis->x2 + 1;
+        i = vis->x1;
 
         if (vis->patchnum < 0)
             continue;
 
         // clear out the clipping array across the range of the psprite
-        if (x1 <= x2)
+        while (i < stopx)
         {
-            unsigned short *p = spropening + x2 + 1;
-            i = x2 - x1 + 1;
-            do {
-                *--p = vph;
-            } while (--i);
+            spropening[i] = vph;
+            ++i;
         }
 
         R_DrawVisSprite(vis, spropening, sprscreenhalf);

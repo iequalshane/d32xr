@@ -1,0 +1,49 @@
+gameinfo
+{
+    endShowCast = 0
+    noAttractDemo = 0
+    titleMus = "D_INTRO"
+    intermissionMus = "D_INTER"
+    victoryMus = "D_VICTOR"
+    endMus = "D_VICTOR"
+    titlePage = "TITLE"
+    titleTime = 450
+    borderFlat = "CEIL5_1"
+    endFlat = "FLOOR4_8"
+    endText = "mission accomplished.**are you prepared for*the next mission?"
+}
+map "MAP01" "Landing Zone"
+{
+    music = "D_E1M1"
+    mapnumber = 1
+    sky = "SKY1"
+    next = "MAP02"
+}
+map "MAP02" "Storage Facility"
+{
+    music = "D_E1M2"
+    mapnumber = 2
+    sky = "SKY1"
+    next = "MAP03"
+}
+map "MAP03" "Experimental Lab"
+{
+    music = "D_E1M3"
+    mapnumber = 3
+    sky = "SKY1"
+    next = "MAP04"
+}
+map "MAP04" "Arboretum"
+{
+    music = "D_E1M4"
+    mapnumber = 4
+    sky = "SKY1"
+    next = "MAP05"
+}
+map "MAP05" "Caverns of Bazoik"
+{
+    music = "D_E1M5"
+    mapnumber = 5
+    sky = "SKY1"
+    BaronSpecial
+}

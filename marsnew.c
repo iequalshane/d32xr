@@ -529,136 +529,74 @@ boolean	I_RefreshLatched (void)
 
 /*=========================================================================== */
 
-typedef struct {
-	const char *msg;
-	int16_t expire;
-} msgitem_t;
+#define HUD_MSG_TICS (5 * 15)
 
-typedef struct {
-	msgitem_t *items;
-	int16_t nitems;
-	int16_t next;
-	int16_t basex;
-	int16_t basey;
-	uint8_t lasty;
-	boolean redraw;
-} msglist_t;
+static const char *hud_message;
+static int hud_tics;
+static int hud_font;
 
-static void ML_AddMessage(msglist_t *list, const char *msg, int expire)
+void HUD_AddMessage(const char *msg)
 {
-	msgitem_t *item;
-
-	if (!list->nitems) {
-		return;
-	}
-
-	item = &list->items[list->next];
-	item->msg = msg;
-	item->expire = expire;
-	list->redraw = true;
-	list->next = list->next + 1;
-	if (list->next >= list->nitems) {
-		list->next = 0;
-	}
+	hud_message = msg;
+	hud_tics = HUD_MSG_TICS;
 }
 
-static void ML_Ticker(msglist_t *list)
+void HUD_Ticker(void)
 {
-	int i;
-	for (i = 0; i < list->nitems; i++) {
-		if (list->items[i].expire > 0) {
-			list->items[i].expire--;
-			if (list->items[i].expire == 0) {
-				list->redraw = true;
+	if (hud_tics > 0)
+		hud_tics--;
+}
+
+void HUD_Init(void)
+{
+	hud_tics = 0;
+	hud_font = W_GetNumForName("MINI033");
+}
+
+static jagobj_t *HUD_Glyph(int c)
+{
+	if (c >= 'a' && c <= 'z')
+		c -= 'a' - 'A';
+	if (c < '!' || c > ']')
+		c = '?';
+	return (jagobj_t *)W_POINTLUMPNUM(hud_font + c - '!');
+}
+
+void HUD_Drawer(void)
+{
+	if (!hud_tics)
+		return;
+
+	int width = viewportWidth * (lowres ? 2 : 1);
+	int left = splitscreen ? consoleplayer * 160 : (320 - width) / 2;
+	int y = I_ViewportYPos();
+
+	int x = left;
+	const char *text = hud_message;
+	while (*text) {
+		if (*text == ' ') {
+			text++;
+			continue;
+		}
+		const char *end = text;
+		int word_width = 0;
+		while (*end && *end != ' ')
+			word_width += BIGSHORT(HUD_Glyph(*end++)->width);
+
+		if (x != left) {
+			if (x + 4 + word_width > left + width) {
+				x = left;
+				y += 8;
+			} else {
+				x += 4;
 			}
 		}
-	}
-}
-
-static void ML_Init(msglist_t *list, int basey, msgitem_t *items, int nitems)
-{
-	int i;
-
-	list->items = items;
-	list->nitems = nitems;
-	list->basey = basey;
-	list->redraw = false;
-	list->lasty = 0;
-	list->next = 0;
-	list->basex = 2;
-
-	for (i = 0; i < list->nitems; i++) {
-		list->items[i].expire = 0;
-		Mars_MDPutString(list->basex, list->basey+i, " ");
-	}
-}
-
-static void ML_Drawer(msglist_t *list)
-{
-	int i, y, nexty;
-	const int x = list->basex;
-	const int basey = list->basey;
-	int first = -1;
-
-	if (conchars < 0) {
-		return;
-	}
-	if (!list->redraw) {
-		return;
-	}
-
-	for (i = 0; i < list->nitems; i++) {
-		int idx = list->next - 1 - i;
-		if (idx < 0) idx += list->nitems;
-		if (list->items[idx].expire <= 0) {
-			break;
+		while (text < end) {
+			jagobj_t *glyph = HUD_Glyph(*text++);
+			DrawJagobj(glyph, x, y);
+			x += BIGSHORT(glyph->width);
 		}
-		first = idx;
 	}
-
-	y = 0;
-	for (i = 0; i < list->nitems; i++) {
-		int idx = first + i;
-		if (idx >= list->nitems) idx -= list->nitems;
-		if (list->items[idx].expire <= 0) {
-			break;
-		}
-		Mars_MDPutString(x, basey+y, list->items[idx].msg);
-		y++;
-	}
-
-	// erase old messages
-	nexty = y;
-	while (y < list->lasty) {
-		Mars_MDPutString(x, basey+y, " ");
-		y++;
-	}
-	list->lasty = nexty;
-}
-
-/*=========================================================================== */
-
-#define HUD_NUM_MSGS 		2
-#define HUD_MSG_DURATION	5 // seconds
-#define HUD_BASE_Y			23 // 8px units from the top
-
-static msglist_t hud;
-static msgitem_t hud_msgs[HUD_NUM_MSGS];
-
-void HUD_AddMessage(const char *msg) {
-	ML_AddMessage(&hud, msg, 15*HUD_MSG_DURATION);
-}
-
-void HUD_Ticker(void) {
-	ML_Ticker(&hud);
-}
-
-void HUD_Init(void) {
-	ML_Init(&hud, HUD_BASE_Y-HUD_NUM_MSGS, hud_msgs, HUD_NUM_MSGS);
-}
-
-void HUD_Drawer(void) {
-	ML_Drawer(&hud);
 }
 
 /*=========================================================================== */
@@ -1215,17 +1153,21 @@ static void Player0Setup (void)
 		{
 		case 0:
 			val = Mars_GetNetByte(1);
-			if (val == CONN_MAGIC)
-				stage++;
+			if (val == CONN_MAGIC) {
+				stage = 1;
+				start = Mars_GetTicCount();
+			}
 			break;
 		case 1:
-			Net_SendPacket(3, idbyte); /* ignore timeout */
-			stage++;
+			stage = Net_SendPacket(3, idbyte) == 0 ? 2 : 0;
+			start = Mars_GetTicCount();
 			break;
 		case 2:
 			val = Mars_GetNetByte(1);
 			if (val == (CONN_MAGIC ^ 0xFF))
 				return;	/* ready to go! */
+			if (val == CONN_MAGIC)
+				stage = 1;
 			break;
 		}
 
@@ -1264,7 +1206,7 @@ static void Player1Setup (void)
 		Mars_WaitTicks(5);
 
 		val = Net_RecvPacket(3, idbyte);
-		if (val == 3 && idbyte[0] == 0xFF)
+		if (val == 3 && idbyte[0] == 0xFF && Mars_PutNetByte(CONN_MAGIC ^ 0xFF) == 0)
 			break;
 
 		Mars_WaitTicks(5);
@@ -1277,24 +1219,23 @@ static void Player1Setup (void)
 	starttype = idbyte[2] / 8;
 	startskill = idbyte[2] & 7;
 
-	Mars_PutNetByte(CONN_MAGIC ^ 0xFF);	/* send an acknowledge byte */
-	Mars_PutNetByte(CONN_MAGIC ^ 0xFF);	/* send another acknowledge byte */
 }
 
 void I_NetReady(void)
 {
-	int i, val;
-
-	i = 30;
-	Mars_PutNetByte(0x1d);  /* GO! */
-	while (i--)
+	/* The cable is half duplex. Only the host initiates the ready exchange. */
+	const int ready = 0x1d;
+	for (int attempt = 0; attempt < 30; attempt++)
 	{
-		val = Mars_GetNetByte(120);
-		if (val == 0x1d)
-			break;
+		if (consoleplayer == 0 && Mars_PutNetByte(ready) < 0)
+			continue;
+		if (Mars_GetNetByte(120) == ready)
+		{
+			if (consoleplayer == 0 || Mars_PutNetByte(ready) == 0)
+				return;
+		}
 	}
 
-	/* TODO - abort if i == 0 */
 }
 
 void I_NetSetup (void)
@@ -1365,7 +1306,8 @@ unsigned I_NetTransfer (unsigned buttons)
 			if (val < 0)
 				goto reconnect;
 			inbytes[i] = val;
-			Mars_PutNetByte(outbytes[i]);
+			if (Mars_PutNetByte(outbytes[i]) < 0)
+				goto reconnect;
 		}
 		vblsinframe = inbytes[5];	/* take gamevbls from other player */
 	}
@@ -1374,7 +1316,8 @@ unsigned I_NetTransfer (unsigned buttons)
 		/* player 0 sends first */
 		for (i=0; i<=PACKET_SIZE-1; i++)
 		{
-			Mars_PutNetByte(outbytes[i]);
+			if (Mars_PutNetByte(outbytes[i]) < 0)
+				goto reconnect;
 			val = Mars_GetNetByte(120);
 			if (val < 0)
 				goto reconnect;

@@ -64,23 +64,11 @@ int16_t 	worldbbox[4];
 
 void P_LoadVertexes (int lump)
 {
-	byte		*data;
 	int			i;
-	mapvertex_t	*ml;
 	mapvertex_t	*li;
 	
 	numvertexes = W_LumpLength (lump) / sizeof(mapvertex_t);
-	vertexes = Z_Malloc (numvertexes*sizeof(mapvertex_t) + 16,PU_LEVEL);
-	vertexes = (void*)(((uintptr_t)vertexes + 15) & ~15); // aline on cacheline boundary
-	data = W_GetLumpData(lump);
-
-	ml = (mapvertex_t *)data;
-	li = vertexes;
-	for (i=0 ; i<numvertexes ; i++, li++, ml++)
-	{
-		li->x = LITTLESHORT(ml->x);
-		li->y = LITTLESHORT(ml->y);
-	}
+	vertexes = W_POINTLUMPNUM(lump);
 
 	worldbbox[BOXLEFT] = INT16_MAX;
 	worldbbox[BOXRIGHT] = INT16_MIN;
@@ -623,40 +611,9 @@ void P_LoadLineDefs (int lump)
 
 void P_LoadSideDefs (int lump)
 {
-	byte			*data;
-	int				i;
-	mapsidedef_t	*msd;
-	side_t			*sd;
-
-#ifndef MARS
-	for (i=0 ; i<numtextures ; i++)
-		textures[i].usecount = 0;
-#endif	
-	numsides = W_LumpLength (lump) / sizeof(mapsidedef_t);
-	sides = Z_Malloc (numsides*sizeof(side_t)+16,PU_LEVEL);
-	sides = (void*)(((uintptr_t)sides + 15) & ~15); // aline on cacheline boundary
-	D_memset (sides, 0, numsides*sizeof(side_t));
-	data = W_GetLumpData(lump);
-
-	msd = (mapsidedef_t *)data;
-	sd = sides;
-	for (i=0 ; i<numsides ; i++, msd++, sd++)
-	{
-		int rowoffset, textureoffset;
-		textureoffset = LITTLESHORT(msd->textureoffset);
-		rowoffset = LITTLESHORT(msd->rowoffset);
-		sd->toptexture = R_TextureNumForName(msd->toptexture);
-		sd->bottomtexture = R_TextureNumForName(msd->bottomtexture);
-		sd->midtexture = R_TextureNumForName(msd->midtexture);
-		sd->sector = LITTLESHORT(msd->sector);
-		sd->rowoffset = rowoffset & 0xff;
-		sd->textureoffset = (textureoffset & 0xfff) | ((rowoffset & 0x0f00) << 4);
-#ifndef MARS
-		textures[sd->toptexture].usecount++;
-		textures[sd->bottomtexture].usecount++;
-		textures[sd->midtexture].usecount++;
-#endif
-	}
+    numsides = W_LumpLength(lump) / sizeof(side_t);
+    sides = Z_Malloc(numsides * sizeof(side_t), PU_LEVEL);
+    W_ReadLump(lump, sides);
 }
 
 
@@ -670,47 +627,7 @@ void P_LoadSideDefs (int lump)
 
 void P_LoadRejectMatrix (int lump)
 {
-	int i, j;
-	uint8_t *data, *out;
-	int outsize;
-	unsigned outbit, outbyte;
-
-	// compress the reject table, assuming it is symmetrical
-	outsize = (numsectors + 1) * numsectors / 2;
-	outsize = (outsize + 7) / 8;
-
-	rejectmatrix = Z_Malloc (outsize,PU_LEVEL);
-	D_memset(rejectmatrix, 0, outsize);
-	data = W_GetLumpData(lump);
-
-	outbit = 1;
-	outbyte = 0;
-	out = rejectmatrix;
-
-	for (i = 0; i < numsectors; i++) {
-		unsigned k = i*numsectors;
-		unsigned bit = 1 << ((k + i) & 7);
-
-		for (j = i; j < numsectors; j++) {
-			unsigned bytenum = (k + j) / 8;
-
-			if (data[bytenum] & bit)
-			{
-				out[outbyte] |= outbit;
-			}
-
-			bit <<= 1;
-			if (bit > 0xff) {
-				bit = 1;
-			}
-
-			outbit <<= 1;
-			if (outbit > 0xff) {
-				outbyte++;
-				outbit = 1;
-			}
-		}
-	}
+	rejectmatrix = W_POINTLUMPNUM(lump);
 }
 
 /*
@@ -726,12 +643,7 @@ void P_LoadBlockMap (int lump)
 	int		i;
 	int		count;
 
-	blockmaplump = Z_Malloc (W_LumpLength (lump),PU_LEVEL);
-	W_ReadLump (lump,blockmaplump);
-	count = W_LumpLength (lump)/2;
-	for (i=0 ; i<count ; i++)
-		blockmaplump[i] = LITTLESHORT(blockmaplump[i]);
-
+	blockmaplump = W_POINTLUMPNUM(lump);
 	bmaporgx = blockmaplump[0]<<FRACBITS;
 	bmaporgy = blockmaplump[1]<<FRACBITS;
 	bmapwidth = blockmaplump[2];

@@ -145,7 +145,7 @@ static void lzss_copy(int8_t *dst, const int8_t *src, USHORT size)
 	case 3:      *dst++ = *src++;
 	case 2:      *dst++ = *src++;
 	case 1:      *dst++ = *src++;
-	} while (--r);
+	} while (--t);
 	}
 #endif
 }

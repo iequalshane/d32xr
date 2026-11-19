@@ -53,6 +53,7 @@ uint8_t		*dc_playpals, *dc_cshift_playpals;
 void *R_SkipJagObjHeader(void *data, int size, int width, int height, jagobj_t **pheader)
 {
 	jagobj_t *header = data;
+	if (pheader) *pheader = NULL;
 
 	if (!data) {
 		return NULL;
@@ -147,6 +148,9 @@ void R_InitTextures (void)
 				texture->name[j] = c - ('a' - 'A');
 		}
 
+		char maskname[9];
+		D_snprintf(maskname, sizeof(maskname), "MASK%d", i);
+		texture->masklump = W_CheckRangeForName(maskname, firstsprite, firstsprite + numsprites);
 		if (masked)
 			texture->lumpnum = W_CheckRangeForName(texture->name, firstsprite, firstsprite + numsprites);
 		else if (start >= 0 && end > 0)

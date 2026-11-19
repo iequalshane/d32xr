@@ -509,7 +509,7 @@ void R_SetTextureData(texture_t *tex, uint8_t *start, int size, boolean skiphead
 	int j;
 	int mipcount = 1;
 	int w = tex->width, h = tex->height;
-	jagobj_t *header;
+	jagobj_t *header = NULL;
 	uint8_t *data = skipheader ? R_SkipJagObjHeader(start, size, w, h, &header) : start;
 	uint8_t *end = start + size;
 #if MIPLEVELS > 1
@@ -774,39 +774,12 @@ extern	pixel_t	*screens[2];	/* [viewportWidth*viewportHeight];  */
 /*
 ==================
 =
-= R_SetupPlaneColumns
-=
-= For each column, precompute the cosine and sine of its view angle
-= premultiplied by the distance scale, so that R_MapPlane only needs
-= to scale them by the plane distance.
-=
-==================
-*/
-
-static void R_SetupPlaneColumns(void)
-{
-	int x;
-	const angle_t viewangle = vd->viewangle;
-	int16_t *pc = vd->planecols;
-
-	for (x = 0; x < viewportWidth; x++)
-	{
-		fixed_t ds = (fixed_t)distscale[x] << 1;
-		angle_t angle = (viewangle + (xtoviewangle[x]<<FRACBITS)) >> ANGLETOFINESHIFT;
-		*pc++ = (FixedMul(finecosine(angle), ds)) >> PLANECOLSHIFT;
-		*pc++ = (FixedMul(finesine(angle), ds)) >> PLANECOLSHIFT;
-	}
-}
-
-/*
-==================
-=
 = R_Setup
 =
 ==================
 */
 
-static void R_Setup (int displayplayer, sector_t **vissectors_, int16_t *planecols_)
+static void R_Setup (int displayplayer, sector_t **vissectors_)
 {
 	int 		i;
 	int		damagecount, bonuscount;
@@ -960,10 +933,7 @@ static void R_Setup (int displayplayer, sector_t **vissectors_, int16_t *planeco
 	{
 		if (i)
 		{
-			palette = (i + 7) / 8;
-			if (palette > 7)
-				palette = 7;
-			palette += 1;
+			palette = 13; /* Flemoid slime */
 		}
 		else if (bonuscount)
 		{
@@ -1055,12 +1025,6 @@ static void R_Setup (int displayplayer, sector_t **vissectors_, int16_t *planeco
 	vd->pvissector = vd->vissectors - 1;
 	vd->psecthing = NULL;
 
-	vd->planecols = planecols_;
-#ifndef MARS
-	if (detailmode != detmode_potato)
-		R_SetupPlaneColumns();
-#endif
-
 #ifndef MARS
 	phasetime[0] = samplecount;
 #endif
@@ -1071,10 +1035,6 @@ static void R_Setup (int displayplayer, sector_t **vissectors_, int16_t *planeco
 void Mars_Sec_R_Setup(void)
 {
 	Mars_ClearCache();
-
-	if (detailmode != detmode_potato)
-		R_SetupPlaneColumns();
-
 	I_SetThreadLocalVar(DOOMTLS_FRAMEBUFFER, viewportbuffer);
 	I_SetThreadLocalVar(DOOMTLS_COLUMNCACHE, vd->columncache[1]);
 }
@@ -1197,11 +1157,6 @@ extern	ref8_start;
 void R_RenderPlayerView(int displayplayer)
 {
 	sector_t *vissectors_[MAXVISSSEC+1];
-#ifdef MARS
-	// aligned to the SH-2 cache line, so clearing its cache lines touches nothing else
-	__attribute__((aligned(16)))
-#endif
-	int16_t planecols_[SCREENWIDTH*2];
 
 	/* make sure its done now */
 #if defined(JAGUAR)
@@ -1215,7 +1170,7 @@ void R_RenderPlayerView(int displayplayer)
 	if (debugscreenactive)
 		I_DebugScreen();
 
-	R_Setup(displayplayer, vissectors_+1, planecols_);
+	R_Setup(displayplayer, vissectors_+1);
 
 #ifndef JAGUAR
 	R_BSP();
@@ -1258,15 +1213,10 @@ void R_RenderPlayerView(int displayplayer)
 	int t_bsp, t_prep, t_segs, t_planes, t_sprites, t_total;
 	boolean drawworld = !(players[consoleplayer].automapflags & AF_ACTIVE);
 	sector_t *vissectors_[MAXVISSSEC+1];
-#ifdef MARS
-	// aligned to the SH-2 cache line, so clearing its cache lines touches nothing else
-	__attribute__((aligned(16)))
-#endif
-	int16_t planecols_[SCREENWIDTH*2];
 
 	t_total = I_GetFRTCounter();
 
-	R_Setup(displayplayer, vissectors_+1, planecols_);
+	R_Setup(displayplayer, vissectors_+1);
 
 	Mars_R_BeginWallPrep(drawworld);
 

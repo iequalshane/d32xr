@@ -30,7 +30,8 @@ static volatile uint16_t mars_activescreen = 0;
 
 static char mars_gamepadport[MARS_MAX_CONTROLLERS];
 static char mars_mouseport;
-static volatile uint16_t mars_controlval[2];
+static volatile uint16_t pad_held[MARS_MAX_CONTROLLERS];
+static volatile uint16_t pad_pressed[MARS_MAX_CONTROLLERS];
 
 volatile unsigned mars_vblank_count = 0;
 volatile unsigned mars_pwdt_ovf_count = 0;
@@ -549,6 +550,13 @@ void Mars_StopTrack(void)
 	while (MARS_SYS_COMM0);
 }
 
+void Mars_SetFMVolume(uint8_t attenuation)
+{
+	while (MARS_SYS_COMM0);
+	MARS_SYS_COMM0 = 0x0800 | attenuation;
+	while (MARS_SYS_COMM0);
+}
+
 void Mars_SetMusicVolume(uint8_t volume)
 {
 	while (MARS_SYS_COMM0);
@@ -740,19 +748,17 @@ void Mars_DetectInputDevices(void)
 		while (*(volatile unsigned short *)&MARS_SYS_COMM0 != ctrl_wait);
 
 		int val = *(volatile unsigned short *)&MARS_SYS_COMM2;
-		if (val == 0xF000)
+		if (val == 0xF000 || val == 0xF001)
 		{
-			mars_controlval[i] = 0;
-		}
-		else if (val == 0xF001)
-		{
-			mars_mouseport = i;
-			mars_controlval[i] = 0;
+			if (val == 0xF001)
+				mars_mouseport = i;
+			pad_held[i] = pad_pressed[i] = 0;
 		}
 		else
 		{
 			mars_gamepadport[i] = i;
-			mars_controlval[i] |= val;
+			pad_pressed[i] |= val & ~pad_held[i];
+			pad_held[i] = val;
 		}
 
 		MARS_SYS_COMM0 = ++ctrl_wait;
@@ -775,12 +781,16 @@ int Mars_ReadController(int ctrl)
 	if (ctrl < 0 || ctrl >= MARS_MAX_CONTROLLERS)
 		return -1;
 
+	/* VBlank updates the device map and the button samples together. */
+	int oldlevel = SetSH2SR(15);
 	port = mars_gamepadport[ctrl];
-	if (port < 0)
-		return -1;
-
-	val = mars_controlval[port];
-	mars_controlval[port] = 0;
+	val = -1;
+	if (port >= 0)
+	{
+		val = pad_held[port] | pad_pressed[port];
+		pad_pressed[port] = 0;
+	}
+	SetSH2SR(oldlevel);
 	return val;
 }
 

@@ -16,3 +16,11 @@
 romheaderfix/romheaderfix
 
 !extras/megasave/D32XR.32X
+
+/build/
+__pycache__/
+
+/ChexQuest.cue
+/Disc/
+/album/*
+!/album/README.md

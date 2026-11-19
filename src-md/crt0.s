@@ -504,7 +504,7 @@ no_cmd:
         dc.w    read_mouse - prireqtbl
         dc.w    read_cdstate - prireqtbl
         dc.w    set_usecd - prireqtbl
-        dc.w    no_cmd - prireqtbl
+        dc.w    set_fm_volume - prireqtbl
         dc.w    no_cmd - prireqtbl
         dc.w    no_cmd - prireqtbl
         dc.w    set_font_pal - prireqtbl
@@ -811,6 +811,7 @@ start_music:
         cmpa.l  a0,a1
         bne.b   3b
 
+        move.b  fm_attenuation,0xA0005C
 | FM setup
         movea.l vgm_ptr,a6
         lea     8(a6),a6            /* version */
@@ -1404,20 +1405,26 @@ write_link:
         andi.b  #0x0F,d0            /* clr TR line */
         move.b  d0,NET_PORT         /* assert TH of other console */
 
-        /* wait on handshake */
+        /* The second nibble must time out if the other console disconnects. */
+        move.w  net_link_timeout,d2
 4:
         bsr     bump_fm
-        btst    #6,NET_PORT         /* check for TH low (handshake) */
-        bne.b   4b
-
-        ori.b   #0x20,d0            /* set TR line */
+        btst    #6,NET_PORT         /* wait for TH low */
+        beq.b   6f
+        dbra    d2,4b
+        bra.w   9f
+6:
+        ori.b   #0x20,d0
         move.b  d0,NET_PORT         /* deassert TH of other console */
+        move.w  net_link_timeout,d2
 5:
         nop
         nop
-        btst    #6,NET_PORT         /* wait for TH high (handshake done) */
-        beq.b   5b
-
+        btst    #6,NET_PORT         /* wait for TH high */
+        bne.b   7f
+        dbra    d2,5b
+        bra.w   9f
+7:
         move.b  #0x20,NET_PORT      /* TR set */
         nop
         nop
@@ -1637,6 +1644,16 @@ net_set_link_timeout:
         move.w  #0,0xA15120         /* release SH2 now */
         bra     main_loop
 
+set_fm_volume:
+        move.b  d0,fm_attenuation
+        move.w  #0x0100,0xA11100
+1:      btst    #0,0xA11100
+        bne.s   1b
+        move.b  d0,0xA0005C         /* FM_GAIN_REQ in the Z80 driver */
+        move.w  #0,0xA11100
+        move.w  #0,0xA15120
+        bra     main_loop
+
 set_music_volume:
         tst.w   megasd_num_cdtracks
         beq     1f                  /* no MD+ */
@@ -1658,9 +1675,9 @@ set_music_volume:
         addq.w  #1,d1               /* volume (1 to 256) */
         add.w   d1,d1
         add.w   d1,d1               /* volume * 4 (4 to 1024) */
-2:
-        move.b  0xA1200F,d0
-        bne     4b                  /* wait until Sub-CPU is ready to receive command */
+wait_cd_volume_ready:
+        tst.b   0xA1200F
+        bne.s   wait_cd_volume_ready
 
         move.w  d1,0xA12010         /* cd volume */
         move.b  #'V,0xA1200E        /* set main comm port to SetVolume command */
@@ -3359,6 +3376,8 @@ net_link_timeout:
 net_type:
         dc.b    0
 
+fm_attenuation:
+        dc.b    8                   /* half amplitude at startup */
 hotplug_cnt:
         dc.b    0
 

@@ -316,12 +316,6 @@ int P_Ticker (void)
 	player_t	*pl;
 	int 	playernum;
 
-	if (demoplayback)
-	{
-		if (M_Ticker())
-			return ga_exitdemo;
-	}
-
 
 	while (!I_RefreshLatched () )
 	;		/* wait for refresh to latch all needed data before */
@@ -564,8 +558,6 @@ void P_Drawer (void)
 	if (automapactive)
 		AM_Drawer();
 
-	if (demoplayback)
-		M_Drawer();
 	if (optionsactive)
 		O_Drawer();
 
@@ -618,6 +610,7 @@ void P_Start (void)
 
 	/* load a level */
 	G_DoLoadLevel();
+	HUD_Init();
 
 	AM_Start ();
 #ifndef MARS

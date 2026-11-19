@@ -11,8 +11,7 @@
 
 #define LIGHTCOEF (0x7ffffu << SLOPEBITS)
 #define MIPSCALE (1<<24)
-#define FLATBITS 6
-#define FLATSIZE (1<<FLATBITS)
+#define FLATSIZE 64
 
 struct localplane_s;
 
@@ -21,9 +20,8 @@ typedef void (*mapplane_fn)(struct localplane_s* lpl, int, int, int);
 typedef struct localplane_s
 {
     visplane_t* pl;
-    int lowres;
-    const int16_t *cols;
     fixed_t height;
+    angle_t angle;
     fixed_t x, y;
     int lightmin, lightmax, lightsub, lightcoef;
     fixed_t basexscale, baseyscale;
@@ -38,6 +36,7 @@ typedef struct localplane_s
     int mipsize[MIPLEVELS];
 #endif
     mapplane_fn mapplane;
+    boolean lowres;
 } localplane_t;
 
 static void R_MapPlane(localplane_t* lpl, int y, int x, int x2) ATTR_DATA_CACHE_ALIGN;
@@ -65,11 +64,19 @@ static int pl_next = 0;
 //
 static void R_MapPlane(localplane_t* lpl, int y, int x, int x2)
 {
+    int remaining;
     fixed_t distance;
-    fixed_t xfrac, yfrac, xstep, ystep;
+    fixed_t ds;
+    fixed_t length, xfrac, yfrac, xstep, ystep;
+    angle_t angle;
     int light;
     unsigned scale;
     unsigned miplevel, mipsize;
+
+    remaining = x2 - x + 1;
+
+    if (remaining <= 0)
+        return; // nothing to draw (shouldn't happen)
 
     distance = FixedMul(lpl->height, yslope[y]);
 
@@ -85,6 +92,10 @@ static void R_MapPlane(localplane_t* lpl, int y, int x, int x2)
         : "=&r" (t), "=&r" (divunit) : "r" (distance), "r"(lpl->lightcoef));
 #endif
 
+    ds = distscale[x];
+    ds <<= 1;
+    length = FixedMul(distance, ds);
+
     xstep = FixedMul(distance, lpl->basexscale);
     ystep = FixedMul(distance, lpl->baseyscale);
 
@@ -98,12 +109,14 @@ static void R_MapPlane(localplane_t* lpl, int y, int x, int x2)
     mipsize = FLATSIZE;
 #endif
 
-    xfrac = lpl->x + FixedMul(distance, lpl->cols[x*2+0] << PLANECOLSHIFT);
+    angle = (lpl->angle + (xtoviewangle[x]<<FRACBITS)) >> ANGLETOFINESHIFT;
+
+    xfrac = FixedMul(finecosine(angle), length);
+    xfrac = lpl->x + xfrac;
+    yfrac = FixedMul(finesine(angle), length);
+    yfrac = lpl->y - yfrac;
 #ifdef MARS
-    // lpl->y is premultiplied by FLATSIZE
-    yfrac = lpl->y - FixedMul(distance, lpl->cols[x*2+1] << (PLANECOLSHIFT+FLATBITS));
-#else
-    yfrac = lpl->y - FixedMul(distance, lpl->cols[x*2+1] << PLANECOLSHIFT);
+    yfrac *= FLATSIZE;
 #endif
 
 #if MIPLEVELS > 1
@@ -270,20 +283,19 @@ static void R_DrawPlanes2(void)
     visplane_t* pl;
     int extralight;
     fixed_t basexscale, baseyscale;
+    fixed_t basexscale2, baseyscale2;
     fixed_t cXf = centerXFrac;
     int8_t *colormaps, *colormaps2;
 
 #ifdef MARS
     Mars_ClearCacheLine(&vd->visplanes); // this also takes care of lastvisplane, gsortedvisplanes, sortedvisplanes
     Mars_ClearCacheLines(vd->gsortedvisplanes, (MAXVISPLANES * sizeof(*vd->gsortedvisplanes) + 15) / 16);
-    Mars_ClearCacheLines(vd->planecols, (SCREENWIDTH * 2 * sizeof(*vd->planecols)) / 16);
 #endif
 
     if (vd->gsortedvisplanes == NULL)
         return;
 
     cXf = centerXFrac;
-    lpl.cols = vd->planecols;
     lpl.lowres = false;
     if (!lowres && drawspan_lowres)
     {
@@ -294,6 +306,10 @@ static void R_DrawPlanes2(void)
     angle = (vd->viewangle - ANG90) >> ANGLETOFINESHIFT;
     basexscale = FixedDiv(finecosine(angle), cXf);
     baseyscale = FixedDiv(finesine(angle), cXf);
+
+    angle = (vd->viewangle        ) >> ANGLETOFINESHIFT;
+    basexscale2 = FixedDiv(finecosine(angle), cXf);
+    baseyscale2 = FixedDiv(finesine(angle), cXf);
 
     lpl.mapplane = detailmode == detmode_potato ? R_MapPotatoPlane : R_MapPlane;
     extralight = vd->extralight;
@@ -310,6 +326,7 @@ static void R_DrawPlanes2(void)
     {
         int light;
         int flatnum;
+        boolean rotated = false;
 
 #ifdef MARS
         //Mars_ClearCacheLines(pl, (sizeof(visplane_t) + 31) / 16);
@@ -327,13 +344,23 @@ static void R_DrawPlanes2(void)
 
         lpl.pl = pl;
         lpl.ds_source[0] = flatpixels[flatnum].data[0];
-        lpl.x =  vd->viewx;
-        lpl.y = -vd->viewy;
-        lpl.basexscale =  basexscale;
-        lpl.baseyscale = -baseyscale;
-
+        if (rotated)
+        {
+            lpl.x = -vd->viewy;
+            lpl.y = -vd->viewx;
+            lpl.angle = vd->viewangle + ANG90;
+            lpl.basexscale =  basexscale2;
+            lpl.baseyscale = -baseyscale2;
+        }
+        else
+        {
+            lpl.x =  vd->viewx;
+            lpl.y = -vd->viewy;
+            lpl.angle = vd->viewangle;
+            lpl.basexscale =  basexscale;
+            lpl.baseyscale = -baseyscale;
+        }
 #ifdef MARS
-        lpl.y *= FLATSIZE;
         lpl.baseyscale *= FLATSIZE;
 #endif
 

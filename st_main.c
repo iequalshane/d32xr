@@ -352,45 +352,8 @@ static void ST_Ticker_(stbar_t* sb)
 	}
 
 	/* */
-	/* Weapons */
-	/* */
-	for (ind = 0; ind < NUMMICROS; ind++)
-	{
-		int weaponowned = ind + 1 == wp_shotgun ? 
-			(p->weaponowned[wp_shotgun] || p->weaponowned[wp_supershotgun]) :
-				(ind + 1 < wp_shotgun ? p->weaponowned[ind + 1] : p->weaponowned[ind + 2]);
-
-		if (weaponowned != sb->weaponowned[ind] || sb->forcedraw)
-		{
-			cmd = &sb->stbarcmds[sb->numstbarcmds++];
-			cmd->id = stc_drawmicro;
-			cmd->ind = ind;
-			cmd->value = weaponowned;
-			sb->weaponowned[ind] = weaponowned;
-		}
-	}
-
-	/* */
-	/* Level */
-	/* */
-	if (netgame != gt_deathmatch)
-	{
-		for (ind = 0; ind < NUMAMMO; ind++)
-		{
-			if (sb->ammocount[ind] != p->ammo[ind] || sb->maxammocount[ind] != p->maxammo[ind] || sb->forcedraw)
-			{
-				cmd = &sb->stbarcmds[sb->numstbarcmds++];
-				cmd->id = stc_drawammocount;
-				cmd->ind = ind;
-				sb->ammocount[ind] = p->ammo[ind];
-				sb->maxammocount[ind] = p->maxammo[ind];
-			}
-		}
-	}
-	/* */
-	/* Or, frag counts! */
-	/* */
-	else
+	/* The Chex HUD art leaves the small weapon and ammo counters blank. */
+	if (netgame == gt_deathmatch)
 	{
 		int		yours;
 		int		his;
@@ -562,6 +525,13 @@ void ST_Ticker(void)
 	stbar_tics++;
 }
 
+static void ST_UpdateValue(int x, int y, int value)
+{
+	int width = 3 * BIGSHORT(sbobj[sb_0]->width);
+	ST_EraseBlock(x - width, y, width, BIGSHORT(sbobj[sb_0]->height));
+	ST_DrawValue(x, y, value);
+}
+
 /*
 ====================
 =
@@ -573,10 +543,8 @@ void ST_Ticker(void)
 static void ST_Drawer_ (stbar_t* sb)
 {
 	int i;
-	int x, y, ind;
+	int ind;
 	boolean have_cards[NUMCARDS];
-	char ammochars[NUMAMMO] = { 14, 12, 16, 15 };
-	char ammoorder[NUMAMMO] = { 0, 1, 3, 2 };
 
 	if (!sbar || !sbobj[0])
 		return;
@@ -588,21 +556,15 @@ static void ST_Drawer_ (stbar_t* sb)
 
 		switch (cmd->id) {
 		case stc_drawammo:
-			// CALICO: Fixed EraseBlock call to have proper x coord and width
-			ST_EraseBlock(AMMOX - 14 * 3 - 4, AMMOY, 14 * 3 + 4, 16);
-			ST_DrawValue(AMMOX, AMMOY, cmd->value);
+			ST_UpdateValue(AMMOX, AMMOY, cmd->value);
 			break;
 		case stc_drawhealth:
-			// CALICO: Fixed EraseBlock call to have proper width
-			ST_EraseBlock(HEALTHX - 14 * 3 - 4, HEALTHY, 14 * 3 + 4, BIGSHORT(sbobj[0]->height));
+			ST_UpdateValue(HEALTHX, HEALTHY, cmd->value);
 			DrawJagobj(sbobj[sb_percent], HEALTHX, stbar_y + HEALTHY);
-			ST_DrawValue(HEALTHX, HEALTHY, cmd->value);
 			break;
 		case stc_drawarmor:
-			// CALICO: Fixed EraseBlock call to have proper width
-			ST_EraseBlock(ARMORX - 14 * 3 - 4, ARMORY, 14 * 3 + 4, BIGSHORT(sbobj[0]->height));
+			ST_UpdateValue(ARMORX, ARMORY, cmd->value);
 			DrawJagobj(sbobj[sb_percent], ARMORX, stbar_y + ARMORY);
-			ST_DrawValue(ARMORX, ARMORY, cmd->value);
 			break;
 		case stc_drawcard:
 			ind = cmd->ind;
@@ -610,27 +572,7 @@ static void ST_Drawer_ (stbar_t* sb)
 			have_cards[ind] = cmd->value;
 			break;
 		case stc_drawammocount:
-			ind = cmd->ind;
-
-			x = STATSX - 32;
-			y = STATSY + ammoorder[ind] * 7;
-			ST_EraseBlock(x, y, 38, 7);
-
-			DrawJagobjLump(micronums + ammochars[ind], x, stbar_y + y, NULL, NULL);
-			ST_DrawMicroValue(x + 18, y, sb->ammocount[ind]);
-			DrawJagobjLump(micronums + 13, x + 20, stbar_y + y, NULL, NULL);
-			ST_DrawMicroValue(x + 20 + 18, y, sb->maxammocount[ind]);
-			break;
 		case stc_drawmicro:
-			if (micronums != -1)
-			{
-				ind = cmd->ind;
-				if (cmd->value)
-					DrawJagobjLump(micronums + ind + 2,
-						micronums_x[ind], stbar_y + micronums_y[ind], NULL, NULL);
-				else
-					ST_EraseBlock(micronums_x[ind], micronums_y[ind], 4, 6);
-			}
 			break;
 		case stc_drawyourfrags:
 			ST_EraseBlock(STATSX - 30, STATSY, 14 * 3 + 4, 28);
@@ -758,7 +700,7 @@ void ST_DrawValue(int x,int y,int value)
 		int w;
 		index = sb_0 + (v[j--] - '0');
 		w = sbobj[index]->width;
-		x -= w + 1;
+		x -= w;
 		DrawJagobj(sbobj[index], x, y);
 	}
 }
@@ -799,12 +741,15 @@ void ST_EraseBlock(int x, int y, int width, int height)
 	if (debugmode == DEBUGMODE_NODRAW)
 		return;
 
-	if (x & 1)
-		x -= 1;
-	if (width & 1)
-		width -= 1;
+	/* Restore complete pixel pairs from within the status-bar bitmap. */
+	int right = (x + width + 1) & ~1;
+	if (right > BIGSHORT(sbar->width)) right = BIGSHORT(sbar->width);
+	x = x < 0 ? 0 : x & ~1;
+	width = right - x;
+	if (height > sbar_height - y) height = sbar_height - y;
 
-	DrawJagobj2(sbar, x, stbar_y + y, x, y, width, height, I_FrameBuffer());
+	if (width > 0 && height > 0)
+		DrawJagobj2(sbar, x, stbar_y + y, x, y, width, height, I_FrameBuffer());
 }
 
 #endif
